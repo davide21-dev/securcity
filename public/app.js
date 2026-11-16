@@ -1,7 +1,7 @@
 /**
  * CityFix · Safe Mobility Web Application
- * Complete Frontend Logic & Real-time Integration
- * Didap Hackathon 2026
+ * Frontend Logic with The F-Layout & Neutral Aesthetic
+ * Categories: Mappa, Notifiche Pericoli, Notifiche Comune, Legenda, Istruzioni
  */
 
 // Application State
@@ -9,18 +9,21 @@ const state = {
   currentUser: null,
   token: localStorage.getItem('safemobility_token') || null,
   reports: [],
+  filteredReports: [],
+  selectedCategoryFilter: 'tutte',
   map: null,
   mapMarkers: {},
   proximityCircle: null,
+  citizenMarker: null,
   userLocation: { lat: 41.1171, lng: 16.8719, name: "Chiostro Innovazione (Bari)" },
-  selectedRadius: 200, // Default 200m as in PDF Slide 9: 'Giulia torna in bici a 200m'
+  selectedRadius: 200, // 200m as in PDF Slide 9: 'Giulia torna in bici a 200m'
   currentCategory: 'incidente',
   uploadedPhotoBase64: null,
   activeTestScenario: null,
   banTimerInterval: null
 };
 
-// Initialize Application on load
+// Initialize on DOM Ready
 document.addEventListener('DOMContentLoaded', async () => {
   if (window.lucide) {
     lucide.createIcons();
@@ -29,10 +32,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   initMap();
   await checkAuthSession();
   await fetchReports();
-  await fetchStatsAndAudit();
+  await fetchNotificheComune();
 
-  // Polling every 10 seconds for real-time updates
-  setInterval(fetchReports, 10000);
+  // Polling every 12 seconds for real-time updates
+  setInterval(fetchReports, 12000);
 });
 
 // ------------------- MAP ENGINE (LEAFLET) ------------------- //
@@ -44,24 +47,25 @@ function initMap() {
 
   L.control.zoom({ position: 'topright' }).addTo(state.map);
 
-  // CartoDB Voyager / OSM tiles for a clean, professional aesthetic
+  // CartoDB Voyager tiles (clean, neutral, readable)
   L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
     attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
     subdomains: 'abcd',
     maxZoom: 19
   }).addTo(state.map);
 
-  // Draw user position marker (Giulia/Citizen)
   updateUserLocationMarker();
 
-  // Click on map to pick report coordinates
+  // Click on map to pick coordinates
   state.map.on('click', (e) => {
     state.userLocation.lat = e.latlng.lat;
     state.userLocation.lng = e.latlng.lng;
     updateUserLocationMarker();
     
-    // Reverse geocode preview
-    document.getElementById('reportIndirizzo').value = `Coord: ${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)} (Bari Centro)`;
+    const addrInput = document.getElementById('reportIndirizzo');
+    if (addrInput) {
+      addrInput.value = `Posizione: ${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)} (Bari)`;
+    }
   });
 }
 
@@ -70,25 +74,24 @@ function updateUserLocationMarker() {
     state.map.removeLayer(state.proximityCircle);
   }
 
-  // Draw citizen location circle with radius
+  // Draw neutral proximity circle
   state.proximityCircle = L.circle([state.userLocation.lat, state.userLocation.lng], {
-    color: '#1B4332',
-    fillColor: '#2D6A4F',
-    fillOpacity: 0.12,
+    color: '#0F172A',
+    fillColor: '#334155',
+    fillOpacity: 0.1,
     radius: state.selectedRadius,
-    weight: 2,
+    weight: 1.5,
     dashArray: '4, 6'
   }).addTo(state.map);
 
-  // Citizen icon
   const citizenIcon = L.divIcon({
     className: 'custom-citizen-icon',
     html: `
       <div class="relative flex items-center justify-center">
-        <div class="w-8 h-8 rounded-full bg-emerald-700 border-2 border-white shadow-xl flex items-center justify-center text-white text-xs font-bold">
+        <div class="w-8 h-8 rounded-full bg-neutral-900 border-2 border-white shadow-md flex items-center justify-center text-white text-xs font-bold">
           🚲
         </div>
-        <div class="absolute -bottom-5 whitespace-nowrap bg-slate-900 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow">
+        <div class="absolute -bottom-5 whitespace-nowrap bg-neutral-900 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow">
           ${state.currentUser ? state.currentUser.nome : "Giulia (Bici)"}
         </div>
       </div>
@@ -110,22 +113,21 @@ function setRadius(meters) {
     const btn = document.getElementById(`rad${r}`);
     if (btn) {
       if (parseInt(r) === meters) {
-        btn.className = "flex-1 py-1.5 text-center rounded-lg bg-white text-slate-800 shadow-sm transition";
+        btn.className = "px-2.5 py-1 rounded bg-white text-neutral-900 shadow-xs font-bold transition";
       } else {
-        btn.className = "flex-1 py-1.5 text-center rounded-lg text-slate-600 hover:text-slate-900 transition";
+        btn.className = "px-2.5 py-1 rounded text-neutral-500 hover:text-neutral-900 transition";
       }
     }
   });
 
   updateUserLocationMarker();
-  renderHazardsList();
+  renderHazardsFeed();
 }
 
 // ------------------- AUTHENTICATION LOGIC ------------------- //
 
 async function checkAuthSession() {
   if (!state.token) {
-    showAuthModal();
     renderUserHeader();
     return;
   }
@@ -139,12 +141,10 @@ async function checkAuthSession() {
       state.currentUser = data.user;
       renderUserHeader();
       checkBanStatus(data.user);
-      hideAuthModal();
     } else {
       localStorage.removeItem('safemobility_token');
       state.token = null;
       state.currentUser = null;
-      showAuthModal();
       renderUserHeader();
     }
   } catch (err) {
@@ -154,9 +154,11 @@ async function checkAuthSession() {
 
 function renderUserHeader() {
   const container = document.getElementById('userHeaderArea');
+  if (!container) return;
+
   if (!state.currentUser) {
     container.innerHTML = `
-      <button onclick="showAuthModal()" class="bg-white/10 hover:bg-white/20 text-white text-xs font-bold px-3 py-2 rounded-xl transition border border-white/20">
+      <button onclick="showAuthModal()" class="bg-neutral-900 hover:bg-neutral-800 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition shadow-xs">
         Accedi / Registrati
       </button>
     `;
@@ -164,27 +166,21 @@ function renderUserHeader() {
   }
 
   const u = state.currentUser;
-  const isBanned = u.is_banned;
   const strikes = u.false_reports_count || 0;
 
   container.innerHTML = `
     <div class="flex items-center gap-2">
-      <!-- Strike badge -->
-      <div class="hidden sm:flex items-center gap-1 bg-white/10 px-2.5 py-1.5 rounded-xl border border-white/15 text-xs" title="Contatore strike foto false (max 3 prima del ban)">
-        <span class="text-[10px] text-emerald-200">Strike:</span>
-        <span class="font-extrabold ${strikes >= 2 ? 'text-amber-300' : 'text-white'}">${strikes}/3</span>
+      <div class="hidden sm:flex items-center gap-1 bg-neutral-100 px-2 py-1 rounded-lg border border-neutral-200 text-xs" title="Strike per foto non conformi (max 3 prima del ban 24h)">
+        <span class="text-[10px] text-neutral-500">Strike:</span>
+        <span class="font-bold ${strikes >= 2 ? 'text-amber-600' : 'text-neutral-800'}">${strikes}/3</span>
       </div>
 
-      <!-- Profile pill -->
-      <div class="flex items-center gap-2 bg-white/10 px-3 py-1.5 rounded-xl border border-white/20 text-xs">
-        <div class="w-6 h-6 rounded-full bg-emerald-300 text-slate-900 flex items-center justify-center font-bold text-[11px]">
+      <div class="flex items-center gap-2 bg-neutral-100 hover:bg-neutral-200 px-2.5 py-1 rounded-lg border border-neutral-200 text-xs">
+        <div class="w-5 h-5 rounded-full bg-neutral-800 text-white flex items-center justify-center font-bold text-[10px]">
           ${u.nome.charAt(0)}
         </div>
-        <div class="text-left hidden sm:block">
-          <div class="font-bold text-white leading-tight">${u.nome} ${u.cognome}</div>
-          <div class="text-[9px] text-emerald-200">${u.is_admin ? "Operatore Comune" : "Cittadino Attivo"}</div>
-        </div>
-        <button onclick="logout()" class="ml-1 text-emerald-200 hover:text-white p-1" title="Esci">
+        <span class="font-bold text-neutral-800 text-xs">${u.nome}</span>
+        <button onclick="logout()" class="text-neutral-400 hover:text-neutral-700 ml-1 p-0.5" title="Esci">
           <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
         </button>
       </div>
@@ -196,6 +192,7 @@ function renderUserHeader() {
 function checkBanStatus(user) {
   const banner = document.getElementById('userBanBanner');
   const countSpan = document.getElementById('banCountdownText');
+  if (!banner || !countSpan) return;
 
   if (state.banTimerInterval) {
     clearInterval(state.banTimerInterval);
@@ -232,12 +229,10 @@ async function resetBanDemo() {
       headers: { 'Authorization': `Bearer ${state.token}` }
     });
     if (res.ok) {
-      alert("Ban azzerato con successo! Ora puoi inviare nuove segnalazioni.");
+      alert("Ban azzerato con successo! Ora puoi effettuare nuove segnalazioni.");
       await checkAuthSession();
     }
-  } catch (err) {
-    console.error(err);
-  }
+  } catch (err) {}
 }
 
 function showAuthModal() {
@@ -259,7 +254,7 @@ function setAuthTab(tab) {
 
   [formLogin, formRegister, formForgot].forEach(f => f.classList.add('hidden'));
   [tabLogin, tabRegister, tabForgot].forEach(t => {
-    t.className = "flex-1 py-3 text-center text-slate-400 hover:text-slate-700 transition";
+    t.className = "flex-1 py-2.5 text-center text-neutral-400 hover:text-neutral-700 transition";
   });
 
   document.getElementById('authError').classList.add('hidden');
@@ -267,13 +262,13 @@ function setAuthTab(tab) {
 
   if (tab === 'login') {
     formLogin.classList.remove('hidden');
-    tabLogin.className = "flex-1 py-3 text-center text-didap-green border-b-2 border-didap-green font-bold transition";
+    tabLogin.className = "flex-1 py-2.5 text-center text-neutral-900 border-b-2 border-neutral-900 font-bold transition";
   } else if (tab === 'register') {
     formRegister.classList.remove('hidden');
-    tabRegister.className = "flex-1 py-3 text-center text-didap-green border-b-2 border-didap-green font-bold transition";
+    tabRegister.className = "flex-1 py-2.5 text-center text-neutral-900 border-b-2 border-neutral-900 font-bold transition";
   } else if (tab === 'forgot') {
     formForgot.classList.remove('hidden');
-    tabForgot.className = "flex-1 py-3 text-center text-didap-green border-b-2 border-didap-green font-bold transition";
+    tabForgot.className = "flex-1 py-2.5 text-center text-neutral-900 border-b-2 border-neutral-900 font-bold transition";
   }
   if (window.lucide) lucide.createIcons();
 }
@@ -313,10 +308,10 @@ async function handleLogin(e) {
       hideAuthModal();
       await fetchReports();
     } else {
-      showAuthError(data.error || "Login fallito.");
+      showAuthError(data.error || "Login non riuscito.");
     }
   } catch (err) {
-    showAuthError("Errore di connessione con il server.");
+    showAuthError("Errore di connessione.");
   }
 }
 
@@ -343,9 +338,9 @@ async function handleRegister(e) {
       renderUserHeader();
       hideAuthModal();
       await fetchReports();
-      alert("Registrazione effettuata con successo! Benvenuto in Safe Mobility.");
+      alert("Registrazione completata con successo!");
     } else {
-      showAuthError(data.error || "Errore durante la registrazione.");
+      showAuthError(data.error || "Errore nella registrazione.");
     }
   } catch (err) {
     showAuthError("Errore di connessione.");
@@ -361,7 +356,7 @@ function quickFillLogin(ident, pass) {
 async function requestResetCode() {
   const identifier = document.getElementById('forgotIdentifier').value.trim();
   if (!identifier) {
-    showAuthError("Inserisci email o numero di telefono.");
+    showAuthError("Inserisci email o telefono.");
     return;
   }
   try {
@@ -398,7 +393,7 @@ async function submitResetPassword() {
     });
     const data = await res.json();
     if (res.ok) {
-      showAuthSuccess("Password modificata! Ora accedi con le nuove credenziali.");
+      showAuthSuccess("Password reimpostata! Ora accedi con le nuove credenziali.");
       setTimeout(() => {
         setAuthTab('login');
         document.getElementById('loginIdentifier').value = identifier;
@@ -416,10 +411,9 @@ function logout() {
   state.token = null;
   state.currentUser = null;
   renderUserHeader();
-  showAuthModal();
 }
 
-// ------------------- REPORTS & MAP RENDERING ------------------- //
+// ------------------- REPORTS & NOTIFICHE PERICOLI ------------------- //
 
 async function fetchReports() {
   try {
@@ -428,71 +422,65 @@ async function fetchReports() {
     if (res.ok) {
       state.reports = data.reports || [];
       renderMapMarkers();
-      renderHazardsList();
-      renderMunicipalityTable();
+      renderHazardsFeed();
     }
   } catch (err) {
     console.error("Failed fetching reports:", err);
   }
 }
 
+function filterCategory(cat) {
+  state.selectedCategoryFilter = cat;
+  renderHazardsFeed();
+}
+
 function renderMapMarkers() {
-  // Clear old markers
   Object.values(state.mapMarkers).forEach(m => state.map.removeLayer(m));
   state.mapMarkers = {};
 
   state.reports.forEach(r => {
-    let pinColor = '#F1C40F'; // Yellow
+    let pinColor = '#EAB308'; // Yellow
     let pulseClass = '';
     if (r.severity === 'ROSSO') {
-      pinColor = '#D9381E';
+      pinColor = '#EF4444';
       pulseClass = 'custom-pulse-red';
     } else if (r.severity === 'ARANCIONE') {
-      pinColor = '#E67E22';
+      pinColor = '#F59E0B';
     }
 
     const icon = L.divIcon({
       className: 'custom-hazard-pin',
       html: `
         <div class="relative flex items-center justify-center">
-          <div class="w-9 h-9 rounded-full flex items-center justify-center text-white shadow-xl ${pulseClass}" style="background-color: ${pinColor}">
+          <div class="w-8 h-8 rounded-full flex items-center justify-center text-white shadow-md ${pulseClass}" style="background-color: ${pinColor}">
             ${getCategoryIcon(r.categoria)}
           </div>
-          <span class="absolute -top-1 -right-1 flex h-3 w-3">
-            <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style="background-color: ${pinColor}"></span>
-            <span class="relative inline-flex rounded-full h-3 w-3" style="background-color: ${pinColor}"></span>
-          </span>
         </div>
       `,
-      iconSize: [36, 36],
-      iconAnchor: [18, 18]
+      iconSize: [32, 32],
+      iconAnchor: [16, 16]
     });
 
     const marker = L.marker([r.lat, r.lng], { icon }).addTo(state.map);
     
-    // Popup with collaborative confirmation & "Non c'è più"
     const popupContent = `
       <div class="p-2 max-w-xs font-sans text-xs">
-        <div class="flex items-center justify-between mb-1.5">
-          <span class="px-2 py-0.5 rounded-full text-[10px] font-black text-white" style="background-color: ${pinColor}">
+        <div class="flex items-center justify-between mb-1">
+          <span class="px-2 py-0.5 rounded text-[10px] font-bold text-white" style="background-color: ${pinColor}">
             CODICE ${r.severity}
           </span>
-          <span class="text-[10px] text-slate-400 font-bold">${Math.round(r.seconds_left / 60)} min rimasti</span>
+          <span class="text-[10px] text-neutral-400 font-bold">${Math.round(r.seconds_left / 60)}m rimasti</span>
         </div>
-        <h4 class="font-bold text-sm text-slate-900 mb-1">${r.categoria.toUpperCase()}</h4>
-        <p class="text-slate-600 mb-2 leading-relaxed">${r.descrizione}</p>
+        <h4 class="font-bold text-xs text-neutral-900 mb-0.5">${r.categoria.toUpperCase()}</h4>
+        <p class="text-neutral-600 mb-2 leading-tight">${r.descrizione}</p>
         
-        ${r.foto_url ? `<img src="${r.foto_url}" class="w-full h-24 object-cover rounded-lg mb-2 shadow-sm" alt="Foto pericolo">` : ''}
-        
-        <div class="p-1.5 rounded-lg bg-stone-100 text-[10px] text-slate-600 mb-2">
-          <b>Bot AI:</b> ${r.ai_reason}
-        </div>
+        ${r.foto_url ? `<img src="${r.foto_url}" class="w-full h-20 object-cover rounded mb-2">` : ''}
 
-        <div class="pt-2 border-t border-slate-100 flex items-center gap-1.5">
-          <button onclick="confirmHazard('${r.id}')" class="flex-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold py-1 px-2 rounded-lg text-[10px] flex items-center justify-center gap-1">
-            👍 C'è ancora (${r.confirm_count})
+        <div class="pt-1.5 border-t border-neutral-100 flex items-center gap-1.5">
+          <button onclick="confirmHazard('${r.id}')" class="flex-1 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 font-bold py-1 px-1.5 rounded text-[10px]">
+            👍 C'è (${r.confirm_count})
           </button>
-          <button onclick="resolveHazard('${r.id}')" class="flex-1 bg-rose-50 hover:bg-rose-100 text-rose-800 font-bold py-1 px-2 rounded-lg text-[10px] flex items-center justify-center gap-1">
+          <button onclick="resolveHazard('${r.id}')" class="flex-1 bg-neutral-100 hover:bg-neutral-200 text-red-600 font-bold py-1 px-1.5 rounded text-[10px]">
             ❌ Non c'è più (${r.resolved_count}/2)
           </button>
         </div>
@@ -514,55 +502,89 @@ function getCategoryIcon(cat) {
   return '🚧';
 }
 
-function renderHazardsList() {
-  const container = document.getElementById('hazardsListContainer');
-  const badge = document.getElementById('activeHazardsBadge');
-  
-  badge.textContent = `${state.reports.length} pericoli attivi`;
+function renderHazardsFeed() {
+  const container = document.getElementById('hazardsFeedContainer');
+  const countBadge = document.getElementById('activeCountBadge');
+  if (!container) return;
 
-  if (state.reports.length === 0) {
+  let list = state.reports;
+  if (state.selectedCategoryFilter !== 'tutte') {
+    list = list.filter(r => r.categoria.toLowerCase().includes(state.selectedCategoryFilter.toLowerCase()));
+  }
+
+  if (countBadge) {
+    countBadge.textContent = `${list.length} attive`;
+  }
+
+  if (list.length === 0) {
     container.innerHTML = `
-      <div class="text-center py-10 px-4 text-slate-400">
-        <i data-lucide="check-circle" class="w-8 h-8 mx-auto mb-2 text-emerald-500"></i>
-        <p class="text-xs font-bold text-slate-600">Nessun pericolo attivo</p>
-        <p class="text-[11px]">La mobilità nel raggio selezionato è regolare.</p>
+      <div class="text-center py-8 text-neutral-400 text-xs">
+        <p class="font-bold text-neutral-600">Nessuna segnalazione attiva in questa categoria</p>
+        <p class="text-[11px]">La mobilità in zona è regolare.</p>
       </div>
     `;
-    if (window.lucide) lucide.createIcons();
     return;
   }
 
-  container.innerHTML = state.reports.map(r => {
+  // Exact F-Layout format: thumbnail on left, text/details on right
+  container.innerHTML = list.map(r => {
+    let badgeColor = 'bg-yellow-100 text-yellow-800 border-yellow-200';
+    if (r.severity === 'ROSSO') {
+      badgeColor = 'bg-red-100 text-red-800 border-red-200';
+    } else if (r.severity === 'ARANCIONE') {
+      badgeColor = 'bg-amber-100 text-amber-800 border-amber-200';
+    }
+
     const isNearby = r.distance_meters !== null && r.distance_meters <= state.selectedRadius;
-    const severityBorder = r.severity === 'ROSSO' ? 'border-l-didap-red' : (r.severity === 'ARANCIONE' ? 'border-l-didap-orange' : 'border-l-didap-yellow');
-    const badgeBg = r.severity === 'ROSSO' ? 'bg-red-100 text-didap-red' : (r.severity === 'ARANCIONE' ? 'bg-amber-100 text-amber-800' : 'bg-yellow-100 text-yellow-800');
 
     return `
-      <div class="bg-white rounded-2xl p-3 border border-slate-200 border-l-4 ${severityBorder} shadow-sm hover:shadow-md transition cursor-pointer" onclick="panToHazard(${r.lat}, ${r.lng}, '${r.id}')">
+      <div class="flex flex-col sm:flex-row items-start gap-4 p-4 rounded-xl border border-neutral-200 bg-white hover:border-neutral-300 transition cursor-pointer" onclick="panToHazard(${r.lat}, ${r.lng}, '${r.id}')">
         
-        <div class="flex items-center justify-between mb-1">
-          <span class="text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${badgeBg}">
-            ${r.severity}
-          </span>
-          <span class="text-[10px] font-bold ${isNearby ? 'text-didap-red animate-pulse' : 'text-slate-400'}">
-            ${r.distance_meters !== null ? `A ${Math.round(r.distance_meters)} metri` : 'In città'}
-          </span>
+        <!-- Left Thumbnail / Icon -->
+        <div class="w-full sm:w-28 sm:h-24 h-36 rounded-lg bg-neutral-100 overflow-hidden shrink-0 border border-neutral-200 relative">
+          ${r.foto_url 
+            ? `<img src="${r.foto_url}" class="w-full h-full object-cover" alt="Foto">`
+            : `<div class="w-full h-full flex items-center justify-center text-2xl">${getCategoryIcon(r.categoria)}</div>`
+          }
+          <div class="absolute bottom-1 right-1 text-[9px] font-bold px-1.5 py-0.5 rounded bg-black/60 text-white">
+            ${Math.round(r.seconds_left / 60)}m
+          </div>
         </div>
 
-        <h4 class="font-extrabold text-xs text-slate-800 mb-0.5">${r.categoria.toUpperCase()}</h4>
-        <p class="text-[11px] text-slate-600 line-clamp-2 mb-2 leading-relaxed">${r.descrizione}</p>
+        <!-- Right Content & Metadata -->
+        <div class="flex-1 w-full space-y-1.5">
+          <div class="flex flex-wrap items-center justify-between gap-1.5">
+            <div class="flex items-center gap-1.5">
+              <span class="text-[10px] font-black uppercase px-2 py-0.5 rounded border ${badgeColor}">
+                ${r.severity}
+              </span>
+              <span class="font-bold text-xs text-neutral-900 uppercase">${r.categoria}</span>
+            </div>
+            <span class="text-[11px] font-bold ${isNearby ? 'text-red-600 animate-pulse' : 'text-neutral-400'}">
+              ${r.distance_meters !== null ? `A ${Math.round(r.distance_meters)}m da te` : 'In città'}
+            </span>
+          </div>
 
-        <div class="flex items-center justify-between pt-2 border-t border-slate-100 text-[10px] text-slate-500">
-          <span class="flex items-center gap-1 font-medium">
-            <i data-lucide="clock" class="w-3 h-3"></i> ${Math.round(r.seconds_left / 60)}m rimanenti
-          </span>
-          <div class="flex items-center gap-2">
-            <button onclick="event.stopPropagation(); confirmHazard('${r.id}')" class="text-emerald-700 hover:text-emerald-800 font-bold">
-              👍 C'è (${r.confirm_count})
-            </button>
-            <button onclick="event.stopPropagation(); resolveHazard('${r.id}')" class="text-rose-600 hover:text-rose-700 font-bold">
-              ❌ Non c'è più
-            </button>
+          <p class="text-xs text-neutral-700 leading-relaxed font-normal">${r.descrizione}</p>
+
+          <div class="text-[11px] text-neutral-400 flex items-center gap-1">
+            <i data-lucide="map-pin" class="w-3 h-3 text-neutral-400"></i>
+            <span>${r.indirizzo}</span>
+          </div>
+
+          <div class="pt-2 border-t border-neutral-100 flex items-center justify-between text-xs">
+            <span class="text-[11px] text-neutral-500">
+              <b>Verifica Bot AI:</b> ${r.ai_reason.slice(0, 60)}...
+            </span>
+
+            <div class="flex items-center gap-2">
+              <button onclick="event.stopPropagation(); confirmHazard('${r.id}')" class="px-2 py-1 rounded bg-neutral-100 hover:bg-neutral-200 text-neutral-700 font-bold text-[10px]">
+                👍 Confermo (${r.confirm_count})
+              </button>
+              <button onclick="event.stopPropagation(); resolveHazard('${r.id}')" class="px-2 py-1 rounded bg-neutral-100 hover:bg-neutral-200 text-neutral-700 hover:text-red-600 font-bold text-[10px]">
+                ❌ Non c'è più (${r.resolved_count}/2)
+              </button>
+            </div>
           </div>
         </div>
 
@@ -580,8 +602,6 @@ function panToHazard(lat, lng, id) {
   }
 }
 
-// ------------------- COLLABORATIVE ACTIONS (PDF STEP 03) ------------------- //
-
 async function confirmHazard(id) {
   try {
     const res = await fetch(`/api/reports/${id}/confirm`, { method: 'POST' });
@@ -590,9 +610,7 @@ async function confirmHazard(id) {
       alert(data.message);
       await fetchReports();
     }
-  } catch (err) {
-    console.error(err);
-  }
+  } catch (err) {}
 }
 
 async function resolveHazard(id) {
@@ -603,21 +621,45 @@ async function resolveHazard(id) {
       alert(data.message);
       await fetchReports();
     }
+  } catch (err) {}
+}
+
+// ------------------- NOTIFICHE COMUNE ------------------- //
+
+async function fetchNotificheComune() {
+  const container = document.getElementById('notificheComuneContainer');
+  if (!container) return;
+
+  try {
+    const res = await fetch('/api/notifiche-comune');
+    const data = await res.json();
+    if (res.ok && data.notifiche) {
+      container.innerHTML = data.notifiche.map(n => `
+        <div class="p-3 rounded-lg border border-neutral-200 bg-neutral-50 space-y-1">
+          <div class="flex items-center justify-between text-[10px] text-neutral-400">
+            <span class="font-bold text-neutral-600">${n.ente}</span>
+            <span>Ufficiale</span>
+          </div>
+          <h4 class="font-bold text-neutral-900 text-xs">${n.titolo}</h4>
+          <p class="text-neutral-600 text-[11px] leading-relaxed">${n.messaggio}</p>
+        </div>
+      `).join('');
+    }
   } catch (err) {
-    console.error(err);
+    console.error("Failed fetching notifiche comune:", err);
   }
 }
 
-// ------------------- REPORT CREATION & BOT AI EVALUATION ------------------- //
+// ------------------- REPORT CREATION & BOT AI ------------------- //
 
 function openReportModal() {
   if (!state.currentUser) {
-    alert("Devi accedere prima di inviare una segnalazione!");
+    alert("Accedi o registrati per segnalare un pericolo!");
     showAuthModal();
     return;
   }
   if (state.currentUser.is_banned) {
-    alert("Il tuo account è temporaneamente sospeso per 24 ore a causa di precedenti segnalazioni false!");
+    alert("Il tuo account è temporaneamente sospeso per 24 ore a causa di segnalazioni non valide!");
     return;
   }
   document.getElementById('reportModal').classList.remove('hidden');
@@ -631,9 +673,9 @@ function closeReportModal() {
 function selectCategory(cat, btn) {
   state.currentCategory = cat;
   document.querySelectorAll('.cat-btn').forEach(b => {
-    b.className = "cat-btn p-2.5 border border-slate-200 bg-white text-slate-700 rounded-xl text-center text-xs font-medium flex flex-col items-center gap-1 hover:border-slate-400";
+    b.className = "cat-btn p-2 border border-neutral-200 bg-white text-neutral-600 rounded-lg text-center text-xs";
   });
-  btn.className = "cat-btn active p-2.5 border-2 border-didap-red bg-red-50 text-didap-red rounded-xl text-center text-xs font-bold flex flex-col items-center gap-1";
+  btn.className = "cat-btn active p-2 border-2 border-neutral-900 bg-neutral-50 text-neutral-900 rounded-lg text-center text-xs font-bold";
 }
 
 function handleFileSelect(e) {
@@ -663,7 +705,7 @@ function loadDemoPhoto(type) {
     red: "https://images.unsplash.com/photo-1543393470-b2c64b6e8d2e?w=800&auto=format&fit=crop&q=60",
     orange: "https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?w=800&auto=format&fit=crop&q=60",
     yellow: "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=800&auto=format&fit=crop&q=60",
-    meme: "https://images.unsplash.com/photo-1533738363-b7f9aef128ce?w=800&auto=format&fit=crop&q=60" // Funny cat meme
+    meme: "https://images.unsplash.com/photo-1533738363-b7f9aef128ce?w=800&auto=format&fit=crop&q=60"
   };
 
   state.uploadedPhotoBase64 = demoImages[type];
@@ -674,18 +716,18 @@ function loadDemoPhoto(type) {
   if (type === 'red') {
     state.activeTestScenario = 'valid_red';
     selectCategory('incidente', document.querySelectorAll('.cat-btn')[0]);
-    document.getElementById('reportDesc').value = "Grave tamponamento tra più veicoli, asfalto ricoperto di detriti, strada impraticabile!";
+    document.getElementById('reportDesc').value = "Incidente serio tra auto con detriti e corsia ostruita.";
   } else if (type === 'orange') {
     state.activeTestScenario = 'valid_orange';
     selectCategory('strada allagata', document.querySelectorAll('.cat-btn')[1]);
-    document.getElementById('reportDesc').value = "Tombino rigurgita acqua, strada completamente allagata per 100 metri.";
+    document.getElementById('reportDesc').value = "Tombino straripato, carreggiata allagata.";
   } else if (type === 'yellow') {
     state.activeTestScenario = 'valid_yellow';
     selectCategory('palo pericolante', document.querySelectorAll('.cat-btn')[2]);
-    document.getElementById('reportDesc').value = "Palo della segnaletica piegato sul marciapiede a rischio caduta.";
+    document.getElementById('reportDesc').value = "Palo inclinato sul marciapiede.";
   } else if (type === 'meme') {
     state.activeTestScenario = 'fake_meme';
-    document.getElementById('reportDesc').value = "Gattino divertente trovato su internet invece della foto del pericolo.";
+    document.getElementById('reportDesc').value = "Immagine satirica / meme non pertinente per testare lo strike.";
   }
 }
 
@@ -700,20 +742,16 @@ async function submitReport() {
     return;
   }
   if (!state.uploadedPhotoBase64) {
-    alert("Carica una foto reale del pericolo per permettere all'AI di validare la segnalazione!");
+    alert("Inserisci o scatta una foto del pericolo!");
     return;
   }
 
-  // Visual feedback: AI evaluating
   btn.disabled = true;
-  btn.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> <span>Analisi Vision Bot AI...</span>`;
-  if (window.lucide) lucide.createIcons();
+  btn.innerHTML = `<span>Analisi Bot AI in corso...</span>`;
 
   box.classList.remove('hidden');
-  box.className = "p-3.5 rounded-2xl border text-xs bg-stone-50 border-stone-200 text-slate-700 animate-pulse";
-  box.innerHTML = `<b>🤖 Bot AI al lavoro:</b> Ispezione autenticità foto, controllo metadati e determinazione codice di gravità...`;
-
-  const apiKey = localStorage.getItem('safemobility_gemini_key') || "";
+  box.className = "p-3 rounded-lg border text-xs bg-neutral-100 border-neutral-300 text-neutral-800 animate-pulse";
+  box.innerHTML = `<b>Bot AI:</b> Verifica autenticità e assegnazione codice in corso...`;
 
   try {
     const res = await fetch('/api/reports/create', {
@@ -726,25 +764,20 @@ async function submitReport() {
         categoria: state.currentCategory,
         descrizione: desc,
         foto: state.uploadedPhotoBase64,
-        lat: state.userLocation.lat + (Math.random() - 0.5) * 0.002, // realistic slight local jitter
+        lat: state.userLocation.lat + (Math.random() - 0.5) * 0.002,
         lng: state.userLocation.lng + (Math.random() - 0.5) * 0.002,
         indirizzo: indirizzo,
-        test_scenario: state.activeTestScenario,
-        gemini_api_key: apiKey
+        test_scenario: state.activeTestScenario
       })
     });
 
     const data = await res.json();
 
     if (res.ok) {
-      // APPROVED REPORT
-      box.className = "p-3.5 rounded-2xl border text-xs bg-emerald-50 border-emerald-300 text-emerald-800";
+      box.className = "p-3 rounded-lg border text-xs bg-emerald-50 border-emerald-300 text-emerald-800";
       box.innerHTML = `
-        <div class="flex items-center gap-1.5 font-bold mb-1">
-          <i data-lucide="check-circle" class="w-4 h-4 text-emerald-600"></i> FOTO AUTENTICA APPROVATA
-        </div>
-        <p><b>Codice Assegnato:</b> <span class="uppercase font-black text-white px-2 py-0.5 rounded text-[10px] ${data.codice_gravita === 'ROSSO' ? 'bg-red-600' : (data.codice_gravita === 'ARANCIONE' ? 'bg-amber-600' : 'bg-yellow-600')}">${data.codice_gravita}</span></p>
-        <p class="mt-1">${data.dettagli}</p>
+        <div class="font-bold mb-0.5">FOTO AUTENTICA APPROVATA</div>
+        <p><b>Codice:</b> ${data.codice_gravita} - ${data.dettagli}</p>
       `;
 
       setTimeout(() => {
@@ -753,68 +786,54 @@ async function submitReport() {
         document.getElementById('reportDesc').value = '';
         box.classList.add('hidden');
         btn.disabled = false;
-        btn.innerHTML = `<i data-lucide="send" class="w-4 h-4"></i> <span>Invia & Attiva Bot AI</span>`;
+        btn.innerHTML = `<i data-lucide="send" class="w-3.5 h-3.5"></i> <span>Invia Segnalazione</span>`;
         fetchReports();
         checkAuthSession();
-      }, 2000);
+      }, 1800);
 
     } else {
-      // REJECTED / BANNED
       if (data.status === 'BANNED') {
-        box.className = "p-3.5 rounded-2xl border text-xs bg-red-100 border-red-300 text-red-900";
+        box.className = "p-3 rounded-lg border text-xs bg-red-50 border-red-300 text-red-900";
         box.innerHTML = `
-          <div class="flex items-center gap-1.5 font-bold text-red-700 mb-1">
-            <i data-lucide="shield-alert" class="w-4 h-4 text-red-600"></i> 3° STRIKE: ACCOUNT SOSPESO PER 24 ORE
-          </div>
-          <p class="font-semibold mb-1">${data.message}</p>
-          <p class="text-[11px] text-red-700"><b>Motivo AI:</b> ${data.motivo}</p>
+          <div class="font-bold text-red-700 mb-0.5">3° STRIKE: ACCOUNT SOSPESO PER 24 ORE</div>
+          <p>${data.message}</p>
         `;
       } else {
-        box.className = "p-3.5 rounded-2xl border text-xs bg-amber-50 border-amber-300 text-amber-900";
+        box.className = "p-3 rounded-lg border text-xs bg-amber-50 border-amber-300 text-amber-900";
         box.innerHTML = `
-          <div class="flex items-center gap-1.5 font-bold text-amber-800 mb-1">
-            <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-600"></i> SEGNALAZIONE NON VALIDA (${data.strike_count}/3 STRIKE)
-          </div>
-          <p class="font-semibold mb-1">${data.message}</p>
-          <p class="text-[11px] text-amber-800"><b>Motivo AI:</b> ${data.motivo}</p>
+          <div class="font-bold text-amber-800 mb-0.5">SEGNALAZIONE NON VALIDA (${data.strike_count}/3 STRIKE)</div>
+          <p>${data.message}</p>
         `;
       }
 
       btn.disabled = false;
-      btn.innerHTML = `<i data-lucide="send" class="w-4 h-4"></i> <span>Invia & Attiva Bot AI</span>`;
+      btn.innerHTML = `<i data-lucide="send" class="w-3.5 h-3.5"></i> <span>Invia Segnalazione</span>`;
       checkAuthSession();
     }
   } catch (err) {
-    alert("Errore nell'invio della segnalazione.");
+    alert("Errore nell'invio.");
     btn.disabled = false;
-    btn.innerHTML = `<i data-lucide="send" class="w-4 h-4"></i> <span>Invia & Attiva Bot AI</span>`;
+    btn.innerHTML = `<i data-lucide="send" class="w-3.5 h-3.5"></i> <span>Invia Segnalazione</span>`;
   }
-
-  if (window.lucide) lucide.createIcons();
 }
 
-// ------------------- SIMULATION OF GIULIA (PDF SLIDE 9: 02 AVVISA) ------------------- //
+// ------------------- SIMULAZIONE ALLERTA GIULIA ------------------- //
 
 function simulateGiuliaApproach() {
-  // Giulia coords moving near the Red Crash on Via Sparano (rep_1)
   const targetHazard = state.reports.find(r => r.severity === 'ROSSO') || state.reports[0];
-  if (!targetHazard) {
-    alert("Nessun pericolo attivo da simulare!");
-    return;
-  }
+  if (!targetHazard) return;
 
-  // Set Giulia 180m south of the hazard
   state.userLocation.lat = targetHazard.lat - 0.0015;
   state.userLocation.lng = targetHazard.lng;
   updateUserLocationMarker();
-  state.map.flyTo([state.userLocation.lat, state.userLocation.lng], 17, { duration: 1.5 });
+  state.map.flyTo([state.userLocation.lat, state.userLocation.lng], 17, { duration: 1.2 });
 
   setTimeout(() => {
     showProximityAlert(
-      "Attenzione Giulia! (A 180m in bici)",
-      `Rilevato ${targetHazard.categoria.toUpperCase()} in ${targetHazard.indirizzo}. Cambia strada e devia su percorso sicuro!`
+      "Allerta Prossimità (A 180m)",
+      `Rilevato ${targetHazard.categoria.toUpperCase()} in ${targetHazard.indirizzo}. Consigliata deviazione!`
     );
-  }, 1600);
+  }, 1400);
 }
 
 function showProximityAlert(title, message) {
@@ -823,174 +842,38 @@ function showProximityAlert(title, message) {
   document.getElementById('toastMessage').textContent = message;
   toast.classList.remove('hidden');
 
-  // Trigger web audio beep
   try {
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
     osc.connect(gain);
     gain.connect(audioCtx.destination);
-    osc.frequency.value = 650;
+    osc.frequency.value = 700;
     osc.type = 'sine';
-    gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+    gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
     osc.start();
     setTimeout(() => {
-      osc.frequency.value = 850;
-      setTimeout(() => osc.stop(), 200);
-    }, 200);
+      osc.frequency.value = 900;
+      setTimeout(() => osc.stop(), 180);
+    }, 180);
   } catch (e) {}
 
-  setTimeout(dismissToast, 8000);
+  setTimeout(dismissToast, 7000);
 }
 
 function dismissToast() {
   document.getElementById('alertToast').classList.add('hidden');
 }
 
-// ------------------- MUNICIPALITY VIEW & AUDIT LOG ------------------- //
-
-async function fetchStatsAndAudit() {
-  try {
-    const res = await fetch('/api/stats');
-    const data = await res.json();
-    if (res.ok) {
-      document.getElementById('kpiActiveReports').textContent = data.active_reports;
-      document.getElementById('kpiBlockedFakes').textContent = data.blocked_fakes;
-      document.getElementById('kpiBannedUsers').textContent = data.banned_users;
-    }
-  } catch (err) {}
-}
-
-function renderMunicipalityTable() {
-  const tbody = document.getElementById('municipalityTableBody');
-  if (!tbody) return;
-
-  const redCount = state.reports.filter(r => r.severity === 'ROSSO').length;
-  const kpiRed = document.getElementById('kpiRedReports');
-  if (kpiRed) kpiRed.textContent = redCount;
-
-  if (state.reports.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="6" class="px-6 py-4 text-center text-slate-400">Nessuna segnalazione attiva.</td></tr>`;
-    return;
-  }
-
-  tbody.innerHTML = state.reports.map(r => {
-    const badgeBg = r.severity === 'ROSSO' ? 'bg-red-100 text-red-800' : (r.severity === 'ARANCIONE' ? 'bg-amber-100 text-amber-800' : 'bg-yellow-100 text-yellow-800');
-    return `
-      <tr class="hover:bg-slate-50 transition">
-        <td class="px-6 py-4">
-          <span class="px-2.5 py-1 rounded-full font-black text-[10px] ${badgeBg}">
-            ${r.severity}
-          </span>
-        </td>
-        <td class="px-6 py-4 font-bold text-slate-800">
-          <div>${r.categoria.toUpperCase()}</div>
-          <div class="text-[11px] text-slate-400 font-normal">${r.indirizzo}</div>
-        </td>
-        <td class="px-6 py-4 max-w-xs truncate text-slate-600">
-          ${r.descrizione}
-        </td>
-        <td class="px-6 py-4 text-[11px] text-slate-500">
-          <span class="text-emerald-700 font-bold">100% Autentica</span><br>
-          ${r.ai_reason.slice(0, 50)}...
-        </td>
-        <td class="px-6 py-4">
-          <span class="font-bold text-slate-700">${r.confirm_count} conferme</span>
-          <span class="text-slate-400">(${r.resolved_count}/2 rimozioni)</span>
-        </td>
-        <td class="px-6 py-4">
-          <button onclick="dispatchTeam('${r.id}', '${r.severity}')" class="bg-didap-green hover:bg-didap-greenDark text-white font-bold px-3 py-1.5 rounded-lg text-[10px] transition">
-            Invia Intervento
-          </button>
-        </td>
-      </tr>
-    `;
-  }).join('');
-
-  // Sample Audit terminal log
-  const term = document.getElementById('auditTerminal');
-  if (term) {
-    term.innerHTML = `
-[AUDIT] 2026-11-16T16:00:00Z - SYSTEM_INIT: Safe Mobility Moderation Model Active (Gemini Vision Multimodal)
-[AUDIT] 2026-11-16T16:04:12Z - EVAL_REQUEST: report_id=rep_1 status=APPROVED severity=ROSSO confidence=0.99
-[AUDIT] 2026-11-16T16:08:45Z - EVAL_REQUEST: report_id=rep_2 status=APPROVED severity=ARANCIONE confidence=0.96
-[AUDIT] 2026-11-16T16:10:20Z - EVAL_REQUEST: status=REJECTED reason="Watermark stock photo detected" strike=1/3
-[AUDIT] 2026-11-16T16:12:05Z - GEOFENCE_TRIGGER: Giulia (User 2) notified within 200m buffer zone (Via Sparano).
-[COMPLIANCE] AI Act Annex IV logged. No automated biometric identification used. Explanations stored.
-    `;
-  }
-}
-
-function dispatchTeam(id, severity) {
-  alert(`Pattuglia di competenza inviata per la segnalazione ${id} (Codice ${severity})!`);
-}
-
-// ------------------- VIEW SWITCHER & TEST BENCH ------------------- //
-
-function switchView(view) {
-  const views = ['viewCitizen', 'viewMunicipality', 'viewAIPlayground'];
-  const btns = ['viewBtnCitizen', 'viewBtnMunicipality', 'viewBtnAI'];
-
-  views.forEach(v => document.getElementById(v).classList.add('hidden'));
-  btns.forEach(b => {
-    document.getElementById(b).className = "px-3.5 py-1.5 text-xs font-medium rounded-lg text-emerald-100 hover:text-white transition";
-  });
-
-  if (view === 'citizen') {
-    document.getElementById('viewCitizen').classList.remove('hidden');
-    document.getElementById('viewBtnCitizen').className = "px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-emerald-500 text-white shadow-sm transition";
-    setTimeout(() => state.map.invalidateSize(), 100);
-  } else if (view === 'municipality') {
-    document.getElementById('viewMunicipality').classList.remove('hidden');
-    document.getElementById('viewBtnMunicipality').className = "px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-emerald-500 text-white shadow-sm transition";
-    renderMunicipalityTable();
-    fetchStatsAndAudit();
-  } else if (view === 'ai-playground') {
-    document.getElementById('viewAIPlayground').classList.remove('hidden');
-    document.getElementById('viewBtnAI').className = "px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-emerald-500 text-white shadow-sm transition";
-  }
-  if (window.lucide) lucide.createIcons();
-}
-
 function testBotPreset(scenario) {
   openReportModal();
   if (scenario === 'fake_meme') {
     loadDemoPhoto('meme');
-  } else if (scenario === 'fake_screen') {
-    loadDemoPhoto('meme');
-    state.activeTestScenario = 'fake_screen';
-    document.getElementById('reportDesc').value = "Foto scattata allo schermo del computer!";
-  } else if (scenario === 'valid_yellow') {
-    loadDemoPhoto('yellow');
   } else if (scenario === 'valid_red') {
     loadDemoPhoto('red');
-  }
-}
-
-function saveApiKey() {
-  const key = document.getElementById('customApiKey').value.trim();
-  if (key) {
-    localStorage.setItem('safemobility_gemini_key', key);
-    alert("Chiave Google AI Studio salvata nel browser!");
-  }
-}
-
-function refreshData() {
-  fetchReports();
-  fetchStatsAndAudit();
-  alert("Dati aggiornati!");
-}
-
-function useCurrentGps() {
-  if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(pos => {
-      state.userLocation.lat = pos.coords.latitude;
-      state.userLocation.lng = pos.coords.longitude;
-      updateUserLocationMarker();
-      state.map.setView([pos.coords.latitude, pos.coords.longitude], 17);
-      document.getElementById('reportIndirizzo').value = `GPS Corrente (${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)})`;
-    }, () => {
-      alert("Impossibile rilevare la posizione GPS del dispositivo.");
-    });
+  } else if (scenario === 'valid_yellow') {
+    loadDemoPhoto('yellow');
+  } else if (scenario === 'valid_orange') {
+    loadDemoPhoto('orange');
   }
 }

@@ -103,6 +103,18 @@ def init_db():
         details TEXT NOT NULL
     )
     """)
+
+    # Municipal announcements table (Notifiche Comune)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS municipal_announcements (
+        id TEXT PRIMARY KEY,
+        ente TEXT NOT NULL,
+        titolo TEXT NOT NULL,
+        messaggio TEXT NOT NULL,
+        tipo TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    )
+    """)
     
     conn.commit()
     
@@ -172,6 +184,23 @@ def seed_sample_data(conn):
         INSERT INTO reports (id, user_id, author_name, categoria, descrizione, severity, is_valid, ai_reason, foto_url, lat, lng, indirizzo, confirm_count, resolved_count, created_at, expires_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, r)
+
+    # Seed municipal announcements
+    cursor.execute("SELECT COUNT(*) FROM municipal_announcements")
+    if cursor.fetchone()[0] == 0:
+        announcements = [
+            ("notif_1", "Comune di Bari · Protezione Civile", "Allerta Meteo Gialla: Rovesci e Raffiche di Vento",
+             "Diramata allerta meteo per le prossime 12 ore. Prestare massima cautela su marciapiedi e piste ciclabili per rami caduti o visibilità ridotta.", "warning",
+             (datetime.utcnow() - timedelta(minutes=25)).isoformat()),
+            ("notif_2", "Polizia Locale · Centro Operativo", "Riapertura Carreggiata Via Sparano",
+             "Intervento di rimozione veicoli incidentati e pulizia asfalto completato. Viabilità ripristinata in piena sicurezza.", "success",
+             (datetime.utcnow() - timedelta(minutes=50)).isoformat()),
+            ("notif_3", "Assessorato Mobilità & Lavori Pubblici", "Squadra Pronto Intervento Tombini e Allagamenti",
+             "Attivata squadra di pronto intervento fognature e tombini in Corso Vittorio Emanuele. Rallentamenti temporanei.", "info",
+             (datetime.utcnow() - timedelta(hours=2)).isoformat())
+        ]
+        for a in announcements:
+            cursor.execute("INSERT INTO municipal_announcements VALUES (?, ?, ?, ?, ?, ?)", a)
 
     conn.commit()
 
@@ -489,6 +518,24 @@ class SafeMobilityHandler(BaseHTTPRequestHandler):
                 "banned_users": banned_users,
                 "blocked_fakes": blocked_fakes
             })
+
+        elif path == "/api/notifiche-comune":
+            conn = sqlite3.connect(DB_PATH)
+            c = conn.cursor()
+            c.execute("SELECT id, ente, titolo, messaggio, tipo, created_at FROM municipal_announcements ORDER BY created_at DESC")
+            rows = c.fetchall()
+            conn.close()
+            notifiche = []
+            for row in rows:
+                notifiche.append({
+                    "id": row[0],
+                    "ente": row[1],
+                    "titolo": row[2],
+                    "messaggio": row[3],
+                    "tipo": row[4],
+                    "created_at": row[5]
+                })
+            return self.send_json({"notifiche": notifiche})
 
         # Static file serving
         clean_path = path.lstrip('/')
