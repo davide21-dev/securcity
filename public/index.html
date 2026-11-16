@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="it" class="scroll-smooth">
+<html lang="it" class="h-full w-full overflow-hidden">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CityFix · Safe Mobility | Mappa, Allerte e Sicurezza Urbana</title>
+  <title>CityFix · Safe Mobility | Live Map & Sicurezza Stradale</title>
   
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -12,31 +12,19 @@
       theme: {
         extend: {
           colors: {
-            neutral: {
-              50: '#F8FAFC',
-              100: '#F1F5F9',
-              200: '#E2E8F0',
-              300: '#CBD5E1',
-              400: '#94A3B8',
-              500: '#64748B',
-              600: '#475569',
-              700: '#334155',
-              800: '#1E293B',
-              900: '#0F172A',
+            waze: {
+              blue: '#0099FF',
+              blueHover: '#0088EE',
+              bgLight: '#F5F7FA',
+              dark: '#1E293B',
+              gray: '#64748B',
+              border: '#E2E8F0'
             },
             severity: {
               red: '#EF4444',
-              redBg: '#FEF2F2',
-              redBorder: '#FCA5A5',
               orange: '#F59E0B',
-              orangeBg: '#FFFBEB',
-              orangeBorder: '#FCD34D',
               yellow: '#EAB308',
-              yellowBg: '#FEFCE8',
-              yellowBorder: '#FDE047',
-              green: '#10B981',
-              greenBg: '#ECFDF5',
-              greenBorder: '#6EE7B7'
+              green: '#10B981'
             }
           },
           fontFamily: {
@@ -50,7 +38,7 @@
   <!-- Google Fonts & Leaflet Map CSS -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   
@@ -58,384 +46,386 @@
   <script src="https://unpkg.com/lucide@latest"></script>
 
   <style>
-    body {
-      font-family: 'Inter', sans-serif;
-      background-color: #F8FAFC;
-      color: #1E293B;
+    html, body {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    #map {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 1;
     }
     .custom-pulse-red {
       animation: pulse-red 1.8s infinite;
     }
     @keyframes pulse-red {
       0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
-      70% { transform: scale(1.05); box-shadow: 0 0 0 12px rgba(239, 68, 68, 0); }
+      70% { transform: scale(1.08); box-shadow: 0 0 0 14px rgba(239, 68, 68, 0); }
       100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
     }
     .leaflet-popup-content-wrapper {
-      border-radius: 0.75rem;
+      border-radius: 1rem;
       padding: 0.25rem;
-      box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+      box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
       border: 1px solid #E2E8F0;
     }
   </style>
 </head>
-<body class="min-h-screen flex flex-col bg-neutral-50 text-neutral-800 antialiased">
+<body class="h-full w-full relative select-none">
 
-  <!-- ==================== 1. TOP HEADER (The F Layout Bar 1) ==================== -->
-  <header class="bg-white border-b border-neutral-200 sticky top-0 z-40">
-    <div class="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-      
-      <!-- Logo / Title -->
-      <a href="#" class="flex items-center gap-2 group">
-        <div class="w-8 h-8 rounded-lg bg-neutral-900 text-white flex items-center justify-center font-black text-sm">
-          CF
-        </div>
-        <div>
-          <span class="text-xl font-extrabold tracking-tight text-neutral-900">CityFix <span class="font-normal text-neutral-500">Safe Mobility</span></span>
-        </div>
-      </a>
+  <!-- ==================== 1. FULLSCREEN LEAFLET MAP ==================== -->
+  <div id="map"></div>
 
-      <!-- Category Links (Mappa, Notifiche Pericoli, Notifiche Comune, Legenda, Istruzioni) -->
-      <nav class="hidden md:flex items-center gap-6 text-xs font-semibold text-neutral-600">
-        <a href="#section-mappa" class="hover:text-neutral-900 uppercase tracking-wider transition">Mappa</a>
-        <a href="#section-notifiche-pericoli" class="hover:text-neutral-900 uppercase tracking-wider transition">Notifiche Pericoli</a>
-        <a href="#section-notifiche-comune" class="hover:text-neutral-900 uppercase tracking-wider transition">Notifiche Comune</a>
-        <a href="#section-legenda" class="hover:text-neutral-900 uppercase tracking-wider transition">Legenda</a>
-        <a href="#section-istruzioni" class="hover:text-neutral-900 uppercase tracking-wider transition">Istruzioni</a>
-      </nav>
-
-      <!-- Action Button (Sign Up / Accedi) + 112 Direct Call -->
-      <div class="flex items-center gap-3">
-        <a href="tel:112" class="hidden sm:flex items-center gap-1.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 text-xs font-bold px-2.5 py-1.5 rounded-lg border border-neutral-300 transition" title="Per emergenze critiche chiama il 112">
-          <i data-lucide="phone" class="w-3.5 h-3.5 text-red-600"></i>
-          <span>112</span>
-        </a>
-        <div id="userHeaderArea">
-          <!-- Populated by JS -->
-        </div>
-      </div>
-
-    </div>
-  </header>
-
-  <!-- BAN BANNER (Active only if banned by AI for 3 fake reports) -->
-  <div id="userBanBanner" class="hidden bg-neutral-800 text-white px-4 py-2 text-center text-xs font-semibold flex items-center justify-center gap-2 border-b border-neutral-700">
+  <!-- BAN BANNER (Visible if user is temporarily banned by AI) -->
+  <div id="userBanBanner" class="hidden absolute top-0 inset-x-0 z-50 bg-neutral-900 text-white px-4 py-2 text-center text-xs font-semibold flex items-center justify-center gap-2 shadow-lg">
     <i data-lucide="alert-octagon" class="w-4 h-4 text-red-400"></i>
     <span>Account temporaneamente sospeso per 24 ore (3 foto false rilevate dall'AI).</span>
-    <span id="banCountdownText" class="bg-neutral-900 px-2 py-0.5 rounded font-mono text-[11px] text-red-300"></span>
+    <span id="banCountdownText" class="bg-black/50 px-2 py-0.5 rounded font-mono text-[11px] text-red-300"></span>
     <button onclick="resetBanDemo()" class="underline ml-2 text-neutral-300 hover:text-white text-[11px]">Azzera Ban (Demo)</button>
   </div>
 
-  <!-- ==================== 2. MISSION STATEMENT / HEADLINE BANNER ==================== -->
-  <div class="max-w-6xl mx-auto px-4 sm:px-6 w-full pt-6 pb-2">
-    <div class="bg-neutral-100 border border-neutral-200 rounded-xl px-6 py-4 text-center">
-      <h1 class="text-base sm:text-lg font-medium text-neutral-700">
-        Rete civica per la sicurezza urbana: segnala pericoli in 3 secondi, ricevi avvisi di prossimità a 200m e proteggi la comunità con l'AI.
-      </h1>
+  <!-- ==================== 2. TOP-LEFT FLOATING CARD: ISTRUZIONI DI GUIDA / ROUTE SEARCH ==================== -->
+  <div class="absolute top-4 left-4 z-20 w-80 sm:w-96 bg-white rounded-2xl shadow-xl border border-neutral-200/80 p-4 backdrop-blur-sm">
+    
+    <!-- Header of Floating Card: Hamburger + Title + Category Switch -->
+    <div class="flex items-center justify-between pb-3 border-b border-neutral-100">
+      <div class="flex items-center gap-3">
+        <button onclick="toggleSideDrawer()" class="p-1.5 rounded-lg hover:bg-neutral-100 text-neutral-700 transition" title="Apri Menu Categorie">
+          <i data-lucide="menu" class="w-5 h-5"></i>
+        </button>
+        <span class="font-extrabold text-sm text-neutral-900 tracking-tight" id="floatingCardTitle">Istruzioni di guida</span>
+      </div>
+
+      <!-- Quick category pills inside card header -->
+      <div class="flex items-center gap-1 text-[11px] font-semibold text-neutral-500">
+        <button onclick="activateCategory('mappa')" id="pillMappa" class="px-2 py-0.5 rounded bg-neutral-900 text-white font-bold transition">Mappa</button>
+        <button onclick="activateCategory('notifiche-pericoli')" id="pillPericoli" class="px-2 py-0.5 rounded hover:bg-neutral-100 text-neutral-600 transition">Pericoli</button>
+        <button onclick="activateCategory('legenda')" id="pillLegenda" class="px-2 py-0.5 rounded hover:bg-neutral-100 text-neutral-600 transition">Legenda</button>
+      </div>
     </div>
+
+    <!-- Inputs Row: Origin & Destination (Waze exact style) -->
+    <div class="mt-3 relative flex items-stretch gap-2">
+      
+      <!-- Connective Line with Icons -->
+      <div class="flex flex-col items-center justify-between py-2.5 px-0.5 shrink-0">
+        <div class="w-3.5 h-3.5 rounded-full border-2 border-waze-blue flex items-center justify-center bg-white"></div>
+        <div class="w-0.5 flex-1 bg-neutral-300 my-1"></div>
+        <i data-lucide="map-pin" class="w-4 h-4 text-red-500"></i>
+      </div>
+
+      <!-- Text Inputs -->
+      <div class="flex-1 space-y-2">
+        <div class="relative flex items-center bg-neutral-50 rounded-xl border border-neutral-200 px-3 py-2">
+          <input type="text" id="routeStart" value="La tua posizione (Giulia in Bici)" class="w-full bg-transparent text-xs font-semibold text-neutral-800 focus:outline-none placeholder-neutral-400" placeholder="Scegli il punto di partenza">
+          <i data-lucide="search" class="w-3.5 h-3.5 text-neutral-400 shrink-0"></i>
+        </div>
+
+        <div class="relative flex items-center bg-neutral-50 rounded-xl border border-neutral-200 px-3 py-2">
+          <input type="text" id="routeEnd" value="Scuola / Polo Innovazione" class="w-full bg-transparent text-xs font-semibold text-neutral-800 focus:outline-none placeholder-neutral-400" placeholder="Scegli la destinazione">
+          <i data-lucide="search" class="w-3.5 h-3.5 text-neutral-400 shrink-0"></i>
+        </div>
+      </div>
+
+      <!-- Swap Button -->
+      <button onclick="swapRouteEndpoints()" class="self-center p-2 rounded-xl hover:bg-neutral-100 text-neutral-400 hover:text-neutral-700 transition" title="Inverti partenza e destinazione">
+        <i data-lucide="arrow-up-down" class="w-4 h-4"></i>
+      </button>
+
+    </div>
+
+    <!-- Bottom Row: Parti Adesso / Raggio Selettore & Safe Route Check -->
+    <div class="mt-3 pt-3 border-t border-neutral-100 flex items-center justify-between text-xs">
+      <div class="flex items-center gap-1 text-neutral-600 font-semibold cursor-pointer" onclick="toggleRadiusPopup()">
+        <i data-lucide="clock" class="w-3.5 h-3.5 text-neutral-500"></i>
+        <span id="radiusTextDisplay">Raggio: 200m (Bici)</span>
+        <i data-lucide="chevron-down" class="w-3 h-3 text-neutral-400"></i>
+      </div>
+
+      <button onclick="calculateSafeRoute()" class="bg-neutral-900 hover:bg-neutral-800 text-white text-[11px] font-bold px-3 py-1.5 rounded-lg transition shadow-xs flex items-center gap-1">
+        <i data-lucide="shield-check" class="w-3 h-3 text-emerald-400"></i>
+        <span>Percorso Sicuro</span>
+      </button>
+    </div>
+
   </div>
 
-  <!-- MAIN CONTAINER (F-LAYOUT BODY) -->
-  <main class="max-w-6xl mx-auto px-4 sm:px-6 w-full py-4 space-y-8 flex-1">
+  <!-- ==================== 3. TOP-RIGHT FLOATING CONTROLS: 9-DOTS APPS, 3-DOTS MORE & ACCEDI ==================== -->
+  <div class="absolute top-4 right-4 z-20 flex items-center gap-2.5">
+    
+    <!-- 9-Dots App Grid Menu (Opens Dropdown with the 4 Categories!) -->
+    <div class="relative">
+      <button onclick="toggleAppMenu()" id="btnAppMenu" class="w-10 h-10 rounded-full bg-white shadow-md border border-neutral-200/80 flex items-center justify-center text-neutral-700 hover:bg-neutral-50 transition" title="Menu Principale">
+        <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24">
+          <circle cx="5" cy="5" r="2"/>
+          <circle cx="12" cy="5" r="2"/>
+          <circle cx="19" cy="5" r="2"/>
+          <circle cx="5" cy="12" r="2"/>
+          <circle cx="12" cy="12" r="2"/>
+          <circle cx="19" cy="12" r="2"/>
+          <circle cx="5" cy="19" r="2"/>
+          <circle cx="12" cy="19" r="2"/>
+          <circle cx="19" cy="19" r="2"/>
+        </svg>
+      </button>
 
-    <!-- ==================== 3. UPPER BLOCK (MAPPA + LEGENDA & FILTRI) ==================== -->
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-      
-      <!-- LEFT COLUMN (~68%): CATEGORIA 1 - MAPPA INTERATTIVA -->
-      <section id="section-mappa" class="lg:col-span-8 bg-white border border-neutral-200 rounded-xl p-5 shadow-sm space-y-4">
+      <!-- App Dropdown Menu (Exact Waze Dropdown from Screenshot 2) -->
+      <div id="appDropdownMenu" class="hidden absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-2xl border border-neutral-200 p-2 z-50 animate-in fade-in zoom-in-95 duration-150">
         
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-neutral-100 gap-2">
-          <div>
-            <div class="flex items-center gap-2">
-              <span class="w-2.5 h-2.5 rounded-full bg-neutral-800"></span>
-              <h2 class="text-base font-bold text-neutral-900 uppercase tracking-tight">Mappa Sicurezza in Tempo Reale</h2>
+        <div class="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-neutral-400 border-b border-neutral-100">
+          CityFix · Categorie
+        </div>
+
+        <div class="space-y-1 py-1">
+          <!-- Categoria 1: Mappa -->
+          <button onclick="activateCategory('mappa')" class="w-full flex items-center gap-3 px-3 py-2 text-left rounded-xl hover:bg-neutral-50 text-neutral-800 transition">
+            <div class="w-7 h-7 rounded-lg bg-blue-50 text-waze-blue flex items-center justify-center">
+              <i data-lucide="map" class="w-4 h-4"></i>
             </div>
-            <p class="text-xs text-neutral-500 mt-0.5">Mappa geolocalizzata dei pericoli stradali e allarmi di prossimità a Bari</p>
-          </div>
+            <div>
+              <div class="text-xs font-bold">Mappa</div>
+              <div class="text-[10px] text-neutral-400">Mappa attiva e radar prossimità</div>
+            </div>
+          </button>
 
-          <!-- Radius Selector (200m, 500m, 1.5km) -->
-          <div class="flex items-center gap-1 bg-neutral-100 p-1 rounded-lg border border-neutral-200 text-xs font-semibold">
-            <span class="text-[10px] text-neutral-400 px-1 font-bold">RAGGIO:</span>
-            <button onclick="setRadius(200)" id="rad200" class="px-2.5 py-1 rounded bg-white text-neutral-900 shadow-xs transition">200m (Bici)</button>
-            <button onclick="setRadius(500)" id="rad500" class="px-2.5 py-1 rounded text-neutral-500 hover:text-neutral-900 transition">500m</button>
-            <button onclick="setRadius(1500)" id="rad1500" class="px-2.5 py-1 rounded text-neutral-500 hover:text-neutral-900 transition">1.5km</button>
-          </div>
-        </div>
+          <!-- Categoria 2: Notifiche Pericoli -->
+          <button onclick="activateCategory('notifiche-pericoli')" class="w-full flex items-center gap-3 px-3 py-2 text-left rounded-xl hover:bg-neutral-50 text-neutral-800 transition">
+            <div class="w-7 h-7 rounded-lg bg-red-50 text-red-500 flex items-center justify-center">
+              <i data-lucide="alert-triangle" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <div class="text-xs font-bold flex items-center gap-1.5">
+                <span>Notifiche Pericoli</span>
+                <span id="menuDangerCount" class="bg-red-100 text-red-700 text-[9px] font-black px-1.5 rounded-full">3</span>
+              </div>
+              <div class="text-[10px] text-neutral-400">Allerte stradali e conferme civiche</div>
+            </div>
+          </button>
 
-        <!-- The Map Container -->
-        <div class="relative w-full h-[360px] rounded-lg overflow-hidden border border-neutral-200">
-          <div id="map" class="w-full h-full z-0"></div>
+          <!-- Categoria 3: Istruzioni -->
+          <button onclick="activateCategory('istruzioni')" class="w-full flex items-center gap-3 px-3 py-2 text-left rounded-xl hover:bg-neutral-50 text-neutral-800 transition">
+            <div class="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <i data-lucide="book-open" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <div class="text-xs font-bold">Istruzioni</div>
+              <div class="text-[10px] text-neutral-400">Guida alla sicurezza e segnalazione</div>
+            </div>
+          </button>
 
-          <!-- Simulation Quick Button overlay -->
-          <div class="absolute top-3 left-3 z-[1000] flex flex-col gap-1.5">
-            <button onclick="simulateGiuliaApproach()" class="bg-white/95 backdrop-blur hover:bg-neutral-50 border border-neutral-200 text-neutral-800 text-xs font-bold py-1.5 px-3 rounded-lg shadow-sm flex items-center gap-1.5 transition">
-              <i data-lucide="bell" class="w-3.5 h-3.5 text-neutral-700"></i>
-              Simula Caso "Giulia in Bici a 200m"
-            </button>
-          </div>
-        </div>
-
-        <!-- Action Bar below map: Segnala in 3 secondi -->
-        <div class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
-          <p class="text-xs text-neutral-500">
-            <span class="font-bold text-neutral-700">Suggerimento:</span> Clicca in qualsiasi punto della mappa per geolocalizzare una segnalazione.
-          </p>
-          <button onclick="openReportModal()" class="w-full sm:w-auto bg-neutral-900 hover:bg-neutral-800 text-white font-bold py-2.5 px-5 rounded-lg text-xs shadow-sm flex items-center justify-center gap-2 transition">
-            <i data-lucide="plus-circle" class="w-4 h-4"></i>
-            <span>Segnala Pericolo in 3 Secondi</span>
+          <!-- Categoria 4: Legenda -->
+          <button onclick="activateCategory('legenda')" class="w-full flex items-center gap-3 px-3 py-2 text-left rounded-xl hover:bg-neutral-50 text-neutral-800 transition">
+            <div class="w-7 h-7 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+              <i data-lucide="list" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <div class="text-xs font-bold">Legenda</div>
+              <div class="text-[10px] text-neutral-400">Codici Giallo, Arancio, Rosso & Ban</div>
+            </div>
           </button>
         </div>
 
-      </section>
-
-      <!-- RIGHT COLUMN (~32%): CATEGORIA 4 - LEGENDA & CATEGORIE FILTRI -->
-      <div class="lg:col-span-4 space-y-6">
-        
-        <!-- WIDGET 1: LEGENDA CODICI & SEVERITÀ -->
-        <section id="section-legenda" class="bg-white border border-neutral-200 rounded-xl p-5 shadow-sm">
-          <h3 class="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-3">Legenda Codici & Gravità</h3>
-          
-          <div class="space-y-3 text-xs">
-            <!-- Codice Rosso -->
-            <div class="flex items-start gap-2.5 pb-2.5 border-b border-neutral-100">
-              <span class="w-3 h-3 rounded-full bg-severity-red shrink-0 mt-0.5"></span>
-              <div>
-                <span class="font-bold text-neutral-900 block">Codice Rosso (Grave)</span>
-                <span class="text-neutral-500 text-[11px] leading-tight">Pericolo imminente per l'incolumità (incidente grave, rissa violenta, crollo). Chiama sempre il 112.</span>
-              </div>
-            </div>
-
-            <!-- Codice Arancione -->
-            <div class="flex items-start gap-2.5 pb-2.5 border-b border-neutral-100">
-              <span class="w-3 h-3 rounded-full bg-severity-orange shrink-0 mt-0.5"></span>
-              <div>
-                <span class="font-bold text-neutral-900 block">Codice Arancione (Medio)</span>
-                <span class="text-neutral-500 text-[11px] leading-tight">Rischio moderato (strada allagata, ostacolo carreggiata, lite). Richiede cautela o deviazione.</span>
-              </div>
-            </div>
-
-            <!-- Codice Giallo -->
-            <div class="flex items-start gap-2.5 pb-2.5 border-b border-neutral-100">
-              <span class="w-3 h-3 rounded-full bg-severity-yellow shrink-0 mt-0.5"></span>
-              <div>
-                <span class="font-bold text-neutral-900 block">Codice Giallo (Basso)</span>
-                <span class="text-neutral-500 text-[11px] leading-tight">Disagio lieve senza pericolo vitale (buca, ramo su marciapiede, traffico).</span>
-              </div>
-            </div>
-
-            <!-- Regola Anti-Abuso -->
-            <div class="bg-neutral-50 p-2.5 rounded-lg border border-neutral-200 text-[11px] text-neutral-600">
-              <span class="font-bold text-neutral-800 block mb-0.5">Regola Anti-Abuso (Bot AI):</span>
-              Ogni foto falsa o meme assegna uno strike. Al <b>3° strike</b> scatta il <b>ban di 24 ore</b>.
-            </div>
-          </div>
-        </section>
-
-        <!-- WIDGET 2: CATEGORIE DI SEGNALAZIONE & FILTRO -->
-        <section class="bg-neutral-100 border border-neutral-200 rounded-xl p-5">
-          <h3 class="text-xs font-bold text-neutral-500 uppercase tracking-wider mb-2.5">Categorie Pericoli</h3>
-          <div class="flex flex-wrap gap-1.5 text-xs">
-            <button onclick="filterCategory('tutte')" class="px-2.5 py-1 rounded bg-neutral-900 text-white font-medium text-[11px]">Tutte</button>
-            <button onclick="filterCategory('incidente')" class="px-2.5 py-1 rounded bg-white border border-neutral-200 text-neutral-700 hover:bg-neutral-50 font-medium text-[11px]">Incidenti</button>
-            <button onclick="filterCategory('strada allagata')" class="px-2.5 py-1 rounded bg-white border border-neutral-200 text-neutral-700 hover:bg-neutral-50 font-medium text-[11px]">Allagamenti</button>
-            <button onclick="filterCategory('palo pericolante')" class="px-2.5 py-1 rounded bg-white border border-neutral-200 text-neutral-700 hover:bg-neutral-50 font-medium text-[11px]">Pali / Cavi</button>
-            <button onclick="filterCategory('rissa')" class="px-2.5 py-1 rounded bg-white border border-neutral-200 text-neutral-700 hover:bg-neutral-50 font-medium text-[11px]">Risse / Molestie</button>
-            <button onclick="filterCategory('ostacolo')" class="px-2.5 py-1 rounded bg-white border border-neutral-200 text-neutral-700 hover:bg-neutral-50 font-medium text-[11px]">Buche / Detriti</button>
-          </div>
-        </section>
-
-      </div>
-
-    </div>
-
-    <!-- ==================== 4. MIDDLE BREAK STRIP ("Use Awkwardly Shaped Elements") ==================== -->
-    <div class="bg-neutral-100 border border-neutral-200 rounded-xl p-5">
-      <div class="text-xs font-bold text-neutral-600 uppercase tracking-wider mb-3 text-center sm:text-left">
-        Flusso Operativo Safe Mobility (Traccia Hackathon Didap)
-      </div>
-      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 text-center">
-        
-        <div class="bg-white p-3 rounded-lg border border-neutral-200 shadow-xs flex flex-col items-center">
-          <div class="w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center font-bold text-xs text-neutral-700 mb-1.5">1</div>
-          <span class="text-xs font-bold text-neutral-800">01. Segnala</span>
-          <span class="text-[10px] text-neutral-500 mt-0.5">Scatto rapido e GPS</span>
-        </div>
-
-        <div class="bg-white p-3 rounded-lg border border-neutral-200 shadow-xs flex flex-col items-center">
-          <div class="w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center font-bold text-xs text-neutral-700 mb-1.5">2</div>
-          <span class="text-xs font-bold text-neutral-800">02. Bot AI</span>
-          <span class="text-[10px] text-neutral-500 mt-0.5">Verifica foto vera/fake</span>
-        </div>
-
-        <div class="bg-white p-3 rounded-lg border border-neutral-200 shadow-xs flex flex-col items-center">
-          <div class="w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center font-bold text-xs text-neutral-700 mb-1.5">3</div>
-          <span class="text-xs font-bold text-neutral-800">03. Codifica</span>
-          <span class="text-[10px] text-neutral-500 mt-0.5">Giallo, Arancio, Rosso</span>
-        </div>
-
-        <div class="bg-white p-3 rounded-lg border border-neutral-200 shadow-xs flex flex-col items-center">
-          <div class="w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center font-bold text-xs text-neutral-700 mb-1.5">4</div>
-          <span class="text-xs font-bold text-neutral-800">04. Allerta 200m</span>
-          <span class="text-[10px] text-neutral-500 mt-0.5">Avviso per Giulia in bici</span>
-        </div>
-
-        <div class="bg-white p-3 rounded-lg border border-neutral-200 shadow-xs flex flex-col items-center">
-          <div class="w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center font-bold text-xs text-neutral-700 mb-1.5">5</div>
-          <span class="text-xs font-bold text-neutral-800">05. Rimozione</span>
-          <span class="text-[10px] text-neutral-500 mt-0.5">2 voti "Non c'è più"</span>
-        </div>
-
-        <div class="bg-white p-3 rounded-lg border border-neutral-200 shadow-xs flex flex-col items-center">
-          <div class="w-8 h-8 rounded-full bg-neutral-100 flex items-center justify-center font-bold text-xs text-neutral-700 mb-1.5">6</div>
-          <span class="text-xs font-bold text-neutral-800">06. Comune</span>
-          <span class="text-[10px] text-neutral-500 mt-0.5">Triage Sala Operativa</span>
-        </div>
-
       </div>
     </div>
 
-    <!-- ==================== 5. LOWER BLOCK (NOTIFICHE PERICOLI + NOTIFICHE COMUNE & ISTRUZIONI) ==================== -->
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+    <!-- 3-Dots More Options (Supporto tecnico, Segnala un problema - Exact Screenshot 1) -->
+    <div class="relative">
+      <button onclick="toggleMoreMenu()" id="btnMoreMenu" class="w-10 h-10 rounded-full bg-white shadow-md border border-neutral-200/80 flex items-center justify-center text-neutral-700 hover:bg-neutral-50 transition" title="Altre opzioni">
+        <i data-lucide="more-vertical" class="w-4 h-4"></i>
+      </button>
+
+      <div id="moreDropdownMenu" class="hidden absolute right-0 mt-2 w-52 bg-white rounded-2xl shadow-xl border border-neutral-200 py-1.5 z-50 text-xs">
+        <button onclick="openTechSupport()" class="w-full text-left px-4 py-2 hover:bg-neutral-50 font-medium text-neutral-700">Supporto tecnico</button>
+        <button onclick="openReportModal()" class="w-full text-left px-4 py-2 hover:bg-neutral-50 font-medium text-neutral-700">Segnala un problema</button>
+        <div class="border-t border-neutral-100 my-1"></div>
+        <button onclick="activateCategory('istruzioni')" class="w-full text-left px-4 py-2 hover:bg-neutral-50 font-medium text-neutral-500 text-[11px]">Info su Safe Mobility</button>
+      </div>
+    </div>
+
+    <!-- Blue Accedi Button / Profile Container (Exact Waze Screenshot 1 & 2) -->
+    <div id="userHeaderArea">
+      <!-- Populated via JS -->
+    </div>
+
+    <!-- Emergency 112 Direct Dial (Safety Requirement from PDF) -->
+    <a href="tel:112" class="hidden sm:flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-extrabold px-3 py-2 rounded-full shadow-md transition" title="Chiama il 112 per emergenze gravi">
+      <i data-lucide="phone" class="w-3.5 h-3.5"></i>
+      <span>112</span>
+    </a>
+
+  </div>
+
+  <!-- ==================== 4. BOTTOM-RIGHT FLOATING CONTROLS: FAB, GPS, ZOOM ==================== -->
+  <div class="absolute bottom-6 right-6 z-20 flex flex-col items-center gap-3">
+    
+    <!-- Red Circular FAB: Segnala Pericolo (Pencil / Alert Icon from Screenshot) -->
+    <button onclick="openReportModal()" class="w-12 h-12 rounded-full bg-red-600 hover:bg-red-700 text-white shadow-2xl flex items-center justify-center transition active:scale-95 group relative" title="Segnala un Pericolo in 3 Secondi">
+      <i data-lucide="edit-3" class="w-5 h-5"></i>
+      <span class="absolute right-14 whitespace-nowrap bg-neutral-900 text-white text-xs font-bold px-2.5 py-1 rounded-lg shadow-md opacity-0 group-hover:opacity-100 transition pointer-events-none">
+        Segnala Pericolo
+      </span>
+    </button>
+
+    <!-- Center GPS Target Button -->
+    <button onclick="centerUserLocation()" class="w-10 h-10 rounded-full bg-white hover:bg-neutral-50 text-neutral-700 shadow-md border border-neutral-200/80 flex items-center justify-center transition" title="Centra la tua posizione">
+      <i data-lucide="crosshair" class="w-4 h-4"></i>
+    </button>
+
+    <!-- Vertical Zoom Pill (+ / -) -->
+    <div class="bg-white rounded-full shadow-md border border-neutral-200/80 flex flex-col items-center overflow-hidden">
+      <button onclick="state.map.zoomIn()" class="w-10 h-10 flex items-center justify-center text-neutral-700 hover:bg-neutral-50 transition border-b border-neutral-100 font-bold text-lg">
+        +
+      </button>
+      <button onclick="state.map.zoomOut()" class="w-10 h-10 flex items-center justify-center text-neutral-700 hover:bg-neutral-50 transition font-bold text-lg">
+        −
+      </button>
+    </div>
+
+  </div>
+
+  <!-- ==================== 5. BOTTOM-LEFT FLOATING CONTROL: SIMULATORE GIULIA ==================== -->
+  <div class="absolute bottom-6 left-6 z-20">
+    <button onclick="simulateGiuliaApproach()" class="w-12 h-12 rounded-2xl bg-white hover:bg-neutral-50 text-waze-blue shadow-lg border border-neutral-200/80 flex items-center justify-center transition group relative" title="Simula Giulia che si avvicina all'incidente a 200m">
+      <i data-lucide="refresh-cw" class="w-5 h-5 text-neutral-700 group-hover:rotate-180 transition duration-500"></i>
+      <span class="absolute left-14 whitespace-nowrap bg-neutral-900 text-white text-xs font-bold px-2.5 py-1 rounded-lg shadow-md opacity-0 group-hover:opacity-100 transition pointer-events-none">
+        Simula Allerta Giulia a 200m
+      </span>
+    </button>
+  </div>
+
+  <!-- ==================== 6. FLOATING SIDE DRAWER (FOR THE 4 CATEGORIES) ==================== -->
+  <div id="sideDrawer" class="hidden fixed inset-y-0 left-0 z-40 w-80 sm:w-96 bg-white shadow-2xl border-r border-neutral-200 flex flex-col animate-in slide-in-from-left duration-200">
+    
+    <!-- Drawer Header -->
+    <div class="p-4 bg-neutral-900 text-white flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <div class="w-7 h-7 rounded-lg bg-white/10 flex items-center justify-center font-bold text-xs text-white">CF</div>
+        <div>
+          <h3 class="font-bold text-sm leading-tight">CityFix · Safe Mobility</h3>
+          <p class="text-[10px] text-neutral-400">Modulo Sicurezza Urbana Didap</p>
+        </div>
+      </div>
+      <button onclick="toggleSideDrawer()" class="p-1 rounded-lg text-neutral-400 hover:text-white">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+    </div>
+
+    <!-- Category Nav Tabs inside Drawer -->
+    <div class="flex border-b border-neutral-200 bg-neutral-50 text-xs font-bold">
+      <button onclick="setDrawerTab('notifiche-pericoli')" id="tabDrawerPericoli" class="flex-1 py-3 text-center text-neutral-900 border-b-2 border-neutral-900">
+        Pericoli
+      </button>
+      <button onclick="setDrawerTab('istruzioni')" id="tabDrawerIstruzioni" class="flex-1 py-3 text-center text-neutral-400 hover:text-neutral-700">
+        Istruzioni
+      </button>
+      <button onclick="setDrawerTab('legenda')" id="tabDrawerLegenda" class="flex-1 py-3 text-center text-neutral-400 hover:text-neutral-700">
+        Legenda
+      </button>
+    </div>
+
+    <!-- Drawer Body -->
+    <div class="flex-1 overflow-y-auto p-4 space-y-4">
       
-      <!-- LEFT COLUMN (~68%): CATEGORIA 2 - NOTIFICHE PERICOLI (LIVE FEED) -->
-      <section id="section-notifiche-pericoli" class="lg:col-span-8 bg-white border border-neutral-200 rounded-xl p-5 shadow-sm space-y-4">
-        
-        <div class="flex items-center justify-between pb-3 border-b border-neutral-100">
-          <div>
-            <div class="flex items-center gap-2">
-              <span class="w-2.5 h-2.5 rounded-full bg-red-600"></span>
-              <h2 class="text-base font-bold text-neutral-900 uppercase tracking-tight">Notifiche Pericoli (Feed Cittadini)</h2>
-            </div>
-            <p class="text-xs text-neutral-500 mt-0.5">Segnalazioni attive convalidate dal Bot AI e coordinate sul posto</p>
-          </div>
-          <span id="activeCountBadge" class="bg-neutral-100 text-neutral-700 text-xs font-bold px-2.5 py-1 rounded-full border border-neutral-200">
-            3 attive
-          </span>
+      <!-- TAB 1: NOTIFICHE PERICOLI LIST -->
+      <div id="drawerTabContentPericoli" class="space-y-3">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-bold text-neutral-500 uppercase">Segnalazioni attive</span>
+          <span id="drawerActiveHazardsCount" class="text-xs font-bold bg-neutral-100 text-neutral-700 px-2 py-0.5 rounded-full">3</span>
         </div>
-
-        <!-- HAZARDS FEED LIST (Exact F-Layout Stream: Image on left, Content on right) -->
-        <div id="hazardsFeedContainer" class="space-y-4">
+        <div id="drawerHazardsList" class="space-y-2.5">
           <!-- Populated by JS -->
         </div>
+      </div>
 
-      </section>
+      <!-- TAB 2: ISTRUZIONI DI GUIDA E SICUREZZA -->
+      <div id="drawerTabContentIstruzioni" class="space-y-3 hidden text-xs text-neutral-600 leading-relaxed">
+        <div class="p-3 bg-neutral-50 rounded-xl border border-neutral-200">
+          <h4 class="font-bold text-neutral-900 text-xs mb-1">01. Segnalazione in 3 secondi</h4>
+          <p class="text-[11px]">Clicca sul pulsante rosso con la matita in basso a destra. Scegli la categoria del pericolo, carica una foto reale e invia. Il bot AI valida istantaneamente la foto.</p>
+        </div>
 
-      <!-- RIGHT COLUMN (~32%): CATEGORIA 3 (NOTIFICHE COMUNE) & CATEGORIA 5 (ISTRUZIONI) -->
-      <div class="lg:col-span-4 space-y-6">
-        
-        <!-- WIDGET 3: CATEGORIA 3 - NOTIFICHE COMUNE (COMUNICATI UFFICIALI & SALA OPERATIVA) -->
-        <section id="section-notifiche-comune" class="bg-white border border-neutral-200 rounded-xl p-5 shadow-sm space-y-3">
-          <div class="flex items-center justify-between pb-2 border-b border-neutral-100">
-            <h3 class="text-xs font-bold text-neutral-900 uppercase tracking-wider flex items-center gap-1.5">
-              <i data-lucide="shield" class="w-3.5 h-3.5 text-neutral-700"></i>
-              Notifiche Comune
-            </h3>
-            <span class="text-[10px] bg-neutral-100 text-neutral-600 font-bold px-2 py-0.5 rounded">Ufficiali</span>
+        <div class="p-3 bg-neutral-50 rounded-xl border border-neutral-200">
+          <h4 class="font-bold text-neutral-900 text-xs mb-1">02. Allerte di prossimità a 200m</h4>
+          <p class="text-[11px]">I cittadini in avvicinamento (come chi va in bici o a piedi) ricevono un avviso sonoro e visivo entro 200 metri dall'evento, con suggerimento di deviazione.</p>
+        </div>
+
+        <div class="p-3 bg-neutral-50 rounded-xl border border-neutral-200">
+          <h4 class="font-bold text-neutral-900 text-xs mb-1">03. Risoluzione collaborativa</h4>
+          <p class="text-[11px]">Ogni pericolo dura un'ora. Se due persone che transitano cliccano sul tasto <b>«Non c'è più»</b>, la segnalazione sparisce subito dalla mappa.</p>
+        </div>
+
+        <div class="p-3 bg-red-50 rounded-xl border border-red-200 text-red-800">
+          <h4 class="font-bold text-red-900 text-xs mb-1">04. Emergenze critiche: chiama il 112</h4>
+          <p class="text-[11px]">Per incendi, risse violente con armi o incidenti con feriti, contatta sempre il <b>112</b> prima di inserire la segnalazione.</p>
+        </div>
+      </div>
+
+      <!-- TAB 3: LEGENDA CODICI E BAN -->
+      <div id="drawerTabContentLegenda" class="space-y-3 hidden text-xs">
+        <div class="p-3 rounded-xl border border-red-200 bg-red-50">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="w-3 h-3 rounded-full bg-severity-red"></span>
+            <span class="font-bold text-red-900">CODICE ROSSO (Grave)</span>
           </div>
+          <p class="text-[11px] text-red-700 leading-tight">Pericolo immediato per la vita (incidente devastante, rissa armata, alluvione critica). Notifica prioritari e 112.</p>
+        </div>
 
-          <div id="notificheComuneContainer" class="space-y-2.5 text-xs">
-            <!-- Populated via JS from /api/notifiche-comune -->
+        <div class="p-3 rounded-xl border border-amber-200 bg-amber-50">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="w-3 h-3 rounded-full bg-severity-orange"></span>
+            <span class="font-bold text-amber-900">CODICE ARANCIONE (Medio)</span>
           </div>
-        </section>
+          <p class="text-[11px] text-amber-800 leading-tight">Rischio moderato (strada allagata, ostacolo carreggiata, lite). Richiede attenzione e deviazione.</p>
+        </div>
 
-        <!-- WIDGET 4: CATEGORIA 5 - ISTRUZIONI & GUIDA RAPIDA -->
-        <section id="section-istruzioni" class="bg-white border border-neutral-200 rounded-xl p-5 shadow-sm space-y-3">
-          <h3 class="text-xs font-bold text-neutral-900 uppercase tracking-wider flex items-center gap-1.5">
-            <i data-lucide="help-circle" class="w-3.5 h-3.5 text-neutral-700"></i>
-            Istruzioni per l'Uso
-          </h3>
-
-          <div class="space-y-3 text-xs text-neutral-600 leading-relaxed">
-            <div>
-              <span class="font-bold text-neutral-800 block text-[11px]">1. Come si segnala un pericolo?</span>
-              Clicca sul tasto <i>«Segnala Pericolo in 3 Secondi»</i>, scatta o carica una foto reale, indica la categoria e conferma la posizione.
-            </div>
-
-            <div>
-              <span class="font-bold text-neutral-800 block text-[11px]">2. Come funziona il Bot AI?</span>
-              L'AI valuta in frazioni di secondo se la foto è autentica e coerente. Se inserisci foto false o meme, il sistema assegna uno strike (al 3° strike: ban 24h).
-            </div>
-
-            <div>
-              <span class="font-bold text-neutral-800 block text-[11px]">3. Come e quando sparisce un pericolo?</span>
-              Ogni segnalazione ha un timer di 1 ora. Se due persone che transitano cliccano su <i>«Non c'è più»</i>, il pericolo viene rimosso subito.
-            </div>
-
-            <div>
-              <span class="font-bold text-neutral-800 block text-[11px]">4. Cosa fare in caso di emergenza?</span>
-              CityFix non sostituisce i soccorsi sanitari o le forze dell'ordine. Per pericoli gravi, chiama sempre il <b>112</b> prima di segnalare.
-            </div>
+        <div class="p-3 rounded-xl border border-yellow-200 bg-yellow-50">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="w-3 h-3 rounded-full bg-severity-yellow"></span>
+            <span class="font-bold text-yellow-900">CODICE GIALLO (Lieve)</span>
           </div>
-        </section>
+          <p class="text-[11px] text-yellow-800 leading-tight">Disagio urbano senza minaccia vitale (buca, ramo su marciapiede, traffico rallentato).</p>
+        </div>
 
-        <!-- WIDGET 5: TEST RAPIDI PER LA GIURIA -->
-        <section class="bg-neutral-100 border border-neutral-200 rounded-xl p-4">
-          <span class="text-[10px] font-bold text-neutral-500 uppercase tracking-wider block mb-2">Test Rapidi per la Giuria:</span>
-          <div class="grid grid-cols-2 gap-1.5 text-xs">
-            <button onclick="testBotPreset('fake_meme')" class="p-2 bg-white hover:bg-neutral-50 border border-neutral-200 rounded text-left">
-              <span class="font-bold text-neutral-800 block text-[11px]">❌ Test Meme</span>
-              <span class="text-[10px] text-neutral-400">Prova Strike</span>
-            </button>
-            <button onclick="testBotPreset('valid_red')" class="p-2 bg-white hover:bg-neutral-50 border border-neutral-200 rounded text-left">
-              <span class="font-bold text-neutral-800 block text-[11px]">🔴 Test Rosso</span>
-              <span class="text-[10px] text-neutral-400">Incidente</span>
-            </button>
-            <button onclick="testBotPreset('valid_yellow')" class="p-2 bg-white hover:bg-neutral-50 border border-neutral-200 rounded text-left">
-              <span class="font-bold text-neutral-800 block text-[11px]">🟡 Test Giallo</span>
-              <span class="text-[10px] text-neutral-400">Buca strada</span>
-            </button>
-            <button onclick="testBotPreset('valid_orange')" class="p-2 bg-white hover:bg-neutral-50 border border-neutral-200 rounded text-left">
-              <span class="font-bold text-neutral-800 block text-[11px]">🟠 Test Arancio</span>
-              <span class="text-[10px] text-neutral-400">Allagamento</span>
-            </button>
-          </div>
-        </section>
-
+        <div class="p-3 rounded-xl border border-neutral-200 bg-neutral-50 text-neutral-700">
+          <span class="font-bold text-neutral-900 block mb-1">Regola dei 3 Strike (Ban 24h)</span>
+          <p class="text-[11px] leading-tight">L'AI blocca foto fake, meme e schermate di computer. Ogni violazione assegna 1 strike: al <b>3° strike</b> scatta il <b>ban di 24 ore</b>.</p>
+        </div>
       </div>
 
     </div>
 
-  </main>
+  </div>
 
-  <!-- ==================== 6. FOOTER ==================== -->
-  <footer class="bg-white border-t border-neutral-200 py-6 text-center text-xs text-neutral-500 mt-8">
-    <div class="max-w-6xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-      <div>
-        <b>CityFix Safe Mobility</b> · Didap SRLS Hackathon 2026 (Chiostro Polo dell'Innovazione)
-      </div>
-      <div class="flex items-center gap-4 text-[11px]">
-        <a href="#section-mappa" class="hover:underline">Mappa</a>
-        <a href="#section-notifiche-pericoli" class="hover:underline">Notifiche Pericoli</a>
-        <a href="#section-notifiche-comune" class="hover:underline">Notifiche Comune</a>
-        <a href="#section-legenda" class="hover:underline">Legenda</a>
-        <a href="#section-istruzioni" class="hover:underline">Istruzioni</a>
-      </div>
-    </div>
-  </footer>
-
-  <!-- ==================== MODALS ==================== -->
+  <!-- ==================== 7. MODALS: AUTH & REPORT ==================== -->
 
   <!-- AUTH MODAL -->
-  <div id="authModal" class="hidden fixed inset-0 bg-neutral-900/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-xl max-w-md w-full overflow-hidden border border-neutral-200">
+  <div id="authModal" class="hidden fixed inset-0 bg-neutral-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden border border-neutral-200">
       
-      <div class="p-5 bg-neutral-100 border-b border-neutral-200 text-center relative">
-        <h3 class="text-base font-bold text-neutral-900">CityFix · Safe Mobility</h3>
-        <p class="text-xs text-neutral-500">Accedi o registrati per segnalare e confermare</p>
-        <button onclick="hideAuthModal()" class="absolute top-4 right-4 text-neutral-400 hover:text-neutral-700">
+      <div class="p-5 bg-neutral-900 text-white text-center relative">
+        <h3 class="text-base font-bold">CityFix · Safe Mobility</h3>
+        <p class="text-xs text-neutral-400">Accedi o registrati per proteggere la tua comunità</p>
+        <button onclick="hideAuthModal()" class="absolute top-4 right-4 text-neutral-400 hover:text-white">
           <i data-lucide="x" class="w-4 h-4"></i>
         </button>
       </div>
 
       <!-- Tab Buttons -->
       <div class="flex border-b border-neutral-200 text-xs font-bold bg-neutral-50">
-        <button id="authTabLogin" onclick="setAuthTab('login')" class="flex-1 py-2.5 text-center text-neutral-900 border-b-2 border-neutral-900">
+        <button id="authTabLogin" onclick="setAuthTab('login')" class="flex-1 py-3 text-center text-neutral-900 border-b-2 border-neutral-900">
           Accedi
         </button>
-        <button id="authTabRegister" onclick="setAuthTab('register')" class="flex-1 py-2.5 text-center text-neutral-400 hover:text-neutral-700">
+        <button id="authTabRegister" onclick="setAuthTab('register')" class="flex-1 py-3 text-center text-neutral-400 hover:text-neutral-700">
           Registrazione
         </button>
-        <button id="authTabForgot" onclick="setAuthTab('forgot')" class="flex-1 py-2.5 text-center text-neutral-400 hover:text-neutral-700">
+        <button id="authTabForgot" onclick="setAuthTab('forgot')" class="flex-1 py-3 text-center text-neutral-400 hover:text-neutral-700">
           Password Dimenticata
         </button>
       </div>
@@ -452,30 +442,30 @@
         <form id="formLogin" onsubmit="handleLogin(event)" class="space-y-3">
           <div>
             <label class="block text-xs font-bold text-neutral-700 mb-1">Email o Numero di Telefono</label>
-            <input type="text" id="loginIdentifier" required placeholder="marco.rossi@email.it o 333..." class="w-full px-3 py-2 text-xs rounded-lg border border-neutral-300 focus:outline-none focus:border-neutral-900">
+            <input type="text" id="loginIdentifier" required placeholder="marco.rossi@email.it o 333..." class="w-full px-3 py-2 text-xs rounded-xl border border-neutral-300 focus:outline-none focus:border-neutral-900">
           </div>
           <div>
             <div class="flex justify-between items-center mb-1">
               <label class="block text-xs font-bold text-neutral-700">Password</label>
               <button type="button" onclick="setAuthTab('forgot')" class="text-[11px] text-neutral-500 hover:underline">Dimenticata?</button>
             </div>
-            <input type="password" id="loginPassword" required placeholder="••••••••" class="w-full px-3 py-2 text-xs rounded-lg border border-neutral-300 focus:outline-none focus:border-neutral-900">
+            <input type="password" id="loginPassword" required placeholder="••••••••" class="w-full px-3 py-2 text-xs rounded-xl border border-neutral-300 focus:outline-none focus:border-neutral-900">
           </div>
-          <button type="submit" class="w-full bg-neutral-900 hover:bg-neutral-800 text-white font-bold py-2 rounded-lg text-xs transition">
+          <button type="submit" class="w-full bg-waze-blue hover:bg-waze-blueHover text-white font-bold py-2.5 rounded-xl text-xs transition shadow-sm">
             Accedi
           </button>
           
           <div class="pt-3 border-t border-neutral-100 text-center">
             <p class="text-[10px] text-neutral-400 mb-1.5 uppercase font-bold">Accesso Rapido Demo Giuria:</p>
             <div class="flex justify-center gap-1.5">
-              <button type="button" onclick="quickFillLogin('marco.rossi@email.it', 'Password123!')" class="px-2 py-1 text-[10px] font-medium bg-neutral-100 hover:bg-neutral-200 rounded">Marco</button>
-              <button type="button" onclick="quickFillLogin('giulia.b@email.it', 'Password123!')" class="px-2 py-1 text-[10px] font-medium bg-neutral-100 hover:bg-neutral-200 rounded">Giulia (Bici)</button>
-              <button type="button" onclick="quickFillLogin('operatore@comune.bari.it', 'AdminCityFix2026!')" class="px-2 py-1 text-[10px] font-medium bg-neutral-100 hover:bg-neutral-200 rounded">Comune</button>
+              <button type="button" onclick="quickFillLogin('marco.rossi@email.it', 'Password123!')" class="px-2.5 py-1 text-[11px] font-medium bg-neutral-100 hover:bg-neutral-200 rounded-lg">Marco</button>
+              <button type="button" onclick="quickFillLogin('giulia.b@email.it', 'Password123!')" class="px-2.5 py-1 text-[11px] font-medium bg-neutral-100 hover:bg-neutral-200 rounded-lg">Giulia (Bici)</button>
+              <button type="button" onclick="quickFillLogin('operatore@comune.bari.it', 'AdminCityFix2026!')" class="px-2.5 py-1 text-[11px] font-medium bg-neutral-100 hover:bg-neutral-200 rounded-lg">Comune</button>
             </div>
           </div>
         </form>
 
-        <!-- REGISTER -->
+        <!-- REGISTER (TUTTI I CAMPI RICHIESTI NEL BOT) -->
         <form id="formRegister" onsubmit="handleRegister(event)" class="space-y-2.5 hidden">
           <div class="grid grid-cols-2 gap-2">
             <div>
@@ -503,7 +493,7 @@
             <label class="block text-[11px] font-bold text-neutral-700 mb-0.5">Password</label>
             <input type="password" id="regPassword" required placeholder="Minimo 8 caratteri" class="w-full px-2.5 py-1.5 text-xs rounded-lg border border-neutral-300 focus:outline-none">
           </div>
-          <button type="submit" class="w-full bg-neutral-900 hover:bg-neutral-800 text-white font-bold py-2 rounded-lg text-xs transition mt-1">
+          <button type="submit" class="w-full bg-waze-blue hover:bg-waze-blueHover text-white font-bold py-2.5 rounded-xl text-xs transition mt-1">
             Crea Account
           </button>
         </form>
@@ -512,16 +502,16 @@
         <div id="formForgot" class="space-y-3 hidden">
           <div id="forgotStep1">
             <p class="text-xs text-neutral-500 mb-2">Inserisci email o telefono per ricevere il codice temporaneo.</p>
-            <input type="text" id="forgotIdentifier" placeholder="Email o Telefono" class="w-full px-3 py-2 text-xs rounded-lg border border-neutral-300 mb-2">
-            <button type="button" onclick="requestResetCode()" class="w-full bg-neutral-900 text-white font-bold py-2 rounded-lg text-xs">Invia Codice OTP</button>
+            <input type="text" id="forgotIdentifier" placeholder="Email o Telefono" class="w-full px-3 py-2 text-xs rounded-xl border border-neutral-300 mb-2">
+            <button type="button" onclick="requestResetCode()" class="w-full bg-waze-blue text-white font-bold py-2 rounded-xl text-xs">Invia Codice OTP</button>
           </div>
           <div id="forgotStep2" class="hidden space-y-2">
-            <div class="p-2 bg-neutral-100 rounded text-xs text-neutral-700 font-mono">
+            <div class="p-2 bg-neutral-100 rounded-lg text-xs text-neutral-700 font-mono">
               Codice Demo: <span id="demoOtpDisplay" class="font-bold"></span>
             </div>
-            <input type="text" id="forgotCode" placeholder="Codice 6 cifre" maxlength="6" class="w-full px-3 py-2 text-xs rounded-lg border border-neutral-300 font-mono text-center">
-            <input type="password" id="forgotNewPassword" placeholder="Nuova password" class="w-full px-3 py-2 text-xs rounded-lg border border-neutral-300">
-            <button type="button" onclick="submitResetPassword()" class="w-full bg-neutral-900 text-white font-bold py-2 rounded-lg text-xs">Reimposta Password</button>
+            <input type="text" id="forgotCode" placeholder="Codice 6 cifre" maxlength="6" class="w-full px-3 py-2 text-xs rounded-xl border border-neutral-300 font-mono text-center">
+            <input type="password" id="forgotNewPassword" placeholder="Nuova password" class="w-full px-3 py-2 text-xs rounded-xl border border-neutral-300">
+            <button type="button" onclick="submitResetPassword()" class="w-full bg-waze-blue text-white font-bold py-2 rounded-xl text-xs">Reimposta Password</button>
           </div>
         </div>
 
@@ -529,17 +519,20 @@
     </div>
   </div>
 
-  <!-- REPORT MODAL -->
-  <div id="reportModal" class="hidden fixed inset-0 bg-neutral-900/40 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-xl max-w-lg w-full overflow-hidden border border-neutral-200 max-h-[90vh] flex flex-col">
+  <!-- REPORT MODAL (SEGNALAZIONE IN 3 SECONDI CON BOT AI) -->
+  <div id="reportModal" class="hidden fixed inset-0 bg-neutral-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden border border-neutral-200 max-h-[90vh] flex flex-col">
       
-      <div class="p-4 bg-neutral-900 text-white flex items-center justify-between">
-        <div>
-          <h3 class="font-bold text-sm">Segnala Pericolo Imminente</h3>
-          <p class="text-[11px] text-neutral-400">Classificazione ed analisi automatica tramite Bot AI</p>
+      <div class="p-4 bg-red-600 text-white flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <i data-lucide="alert-octagon" class="w-5 h-5"></i>
+          <div>
+            <h3 class="font-black text-sm">Segnala Pericolo Imminente</h3>
+            <p class="text-[10px] text-red-100">Validazione e classificazione istantanea tramite Bot AI</p>
+          </div>
         </div>
-        <button onclick="closeReportModal()" class="text-neutral-400 hover:text-white">
-          <i data-lucide="x" class="w-4 h-4"></i>
+        <button onclick="closeReportModal()" class="text-white/80 hover:text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
         </button>
       </div>
 
@@ -549,58 +542,58 @@
         <div>
           <label class="block text-xs font-bold text-neutral-800 mb-1.5">1. Tipo di Pericolo:</label>
           <div class="grid grid-cols-3 gap-2">
-            <button type="button" onclick="selectCategory('incidente', this)" class="cat-btn active p-2 border-2 border-neutral-900 bg-neutral-50 text-neutral-900 rounded-lg text-center text-xs font-bold">Incidente</button>
-            <button type="button" onclick="selectCategory('strada allagata', this)" class="cat-btn p-2 border border-neutral-200 bg-white text-neutral-600 rounded-lg text-center text-xs">Allagamento</button>
-            <button type="button" onclick="selectCategory('palo pericolante', this)" class="cat-btn p-2 border border-neutral-200 bg-white text-neutral-600 rounded-lg text-center text-xs">Palo / Cavo</button>
-            <button type="button" onclick="selectCategory('rissa', this)" class="cat-btn p-2 border border-neutral-200 bg-white text-neutral-600 rounded-lg text-center text-xs">Rissa</button>
-            <button type="button" onclick="selectCategory('molestie', this)" class="cat-btn p-2 border border-neutral-200 bg-white text-neutral-600 rounded-lg text-center text-xs">Molestie</button>
-            <button type="button" onclick="selectCategory('ostacolo', this)" class="cat-btn p-2 border border-neutral-200 bg-white text-neutral-600 rounded-lg text-center text-xs">Buca / Detriti</button>
+            <button type="button" onclick="selectCategory('incidente', this)" class="cat-btn active p-2 border-2 border-red-600 bg-red-50 text-red-700 rounded-xl text-center text-xs font-bold">Incidente</button>
+            <button type="button" onclick="selectCategory('strada allagata', this)" class="cat-btn p-2 border border-neutral-200 bg-white text-neutral-600 rounded-xl text-center text-xs">Allagamento</button>
+            <button type="button" onclick="selectCategory('palo pericolante', this)" class="cat-btn p-2 border border-neutral-200 bg-white text-neutral-600 rounded-xl text-center text-xs">Palo / Cavo</button>
+            <button type="button" onclick="selectCategory('rissa', this)" class="cat-btn p-2 border border-neutral-200 bg-white text-neutral-600 rounded-xl text-center text-xs">Rissa</button>
+            <button type="button" onclick="selectCategory('molestie', this)" class="cat-btn p-2 border border-neutral-200 bg-white text-neutral-600 rounded-xl text-center text-xs">Molestie</button>
+            <button type="button" onclick="selectCategory('ostacolo', this)" class="cat-btn p-2 border border-neutral-200 bg-white text-neutral-600 rounded-xl text-center text-xs">Buca / Ostacolo</button>
           </div>
         </div>
 
         <!-- Description -->
         <div>
           <label class="block text-xs font-bold text-neutral-800 mb-1">2. Descrizione rapida:</label>
-          <textarea id="reportDesc" rows="2" placeholder="Cosa sta succedendo?" class="w-full px-3 py-2 text-xs rounded-lg border border-neutral-300 focus:outline-none focus:border-neutral-900"></textarea>
+          <textarea id="reportDesc" rows="2" placeholder="Cosa è successo?" class="w-full px-3 py-2 text-xs rounded-xl border border-neutral-300 focus:outline-none focus:border-red-600"></textarea>
         </div>
 
         <!-- Location -->
         <div>
           <label class="block text-xs font-bold text-neutral-800 mb-1">3. Posizione:</label>
-          <input type="text" id="reportIndirizzo" value="Via Sparano / Corso Vittorio Emanuele, Bari" class="w-full px-3 py-2 text-xs rounded-lg border border-neutral-300 focus:outline-none focus:border-neutral-900">
+          <input type="text" id="reportIndirizzo" value="Galatina (Puglia) · SP362 / Noha" class="w-full px-3 py-2 text-xs rounded-xl border border-neutral-300 focus:outline-none focus:border-red-600">
         </div>
 
         <!-- Photo Upload & Presets -->
         <div>
           <label class="block text-xs font-bold text-neutral-800 mb-1">4. Foto del Pericolo (Obbligatoria per l'AI):</label>
           
-          <div class="border border-dashed border-neutral-300 rounded-xl p-3 text-center">
+          <div class="border-2 border-dashed border-neutral-300 rounded-2xl p-3 text-center">
             <div id="photoPreviewContainer" class="hidden mb-2 relative">
-              <img id="photoPreviewImg" src="" class="h-28 mx-auto rounded object-cover">
+              <img id="photoPreviewImg" src="" class="h-28 mx-auto rounded-xl object-cover">
               <button onclick="clearPhoto()" class="absolute top-1 right-1 bg-neutral-900 text-white rounded-full p-1"><i data-lucide="x" class="w-3 h-3"></i></button>
             </div>
             
             <div id="photoUploadControls">
-              <input type="file" id="photoFileInput" accept="image/*" onchange="handleFileSelect(event)" class="text-xs text-neutral-500 file:mr-2 file:py-1 file:px-2.5 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-neutral-800 file:text-white cursor-pointer">
+              <input type="file" id="photoFileInput" accept="image/*" onchange="handleFileSelect(event)" class="text-xs text-neutral-500 file:mr-2 file:py-1 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-neutral-800 file:text-white cursor-pointer">
             </div>
 
             <div class="mt-2.5 pt-2 border-t border-neutral-100 flex flex-wrap gap-1 justify-center">
-              <button type="button" onclick="loadDemoPhoto('red')" class="px-2 py-0.5 text-[10px] bg-neutral-100 hover:bg-neutral-200 rounded font-medium">📷 Foto Incidente (Rosso)</button>
-              <button type="button" onclick="loadDemoPhoto('orange')" class="px-2 py-0.5 text-[10px] bg-neutral-100 hover:bg-neutral-200 rounded font-medium">📷 Foto Allagamento (Arancio)</button>
-              <button type="button" onclick="loadDemoPhoto('yellow')" class="px-2 py-0.5 text-[10px] bg-neutral-100 hover:bg-neutral-200 rounded font-medium">📷 Foto Buca (Giallo)</button>
-              <button type="button" onclick="loadDemoPhoto('meme')" class="px-2 py-0.5 text-[10px] bg-neutral-100 hover:bg-neutral-200 rounded font-medium text-purple-700">⚠️ Foto Meme (Fake/Strike)</button>
+              <button type="button" onclick="loadDemoPhoto('red')" class="px-2 py-0.5 text-[10px] bg-red-50 text-red-700 border border-red-200 rounded-lg font-medium">📷 Foto Incidente (Rosso)</button>
+              <button type="button" onclick="loadDemoPhoto('orange')" class="px-2 py-0.5 text-[10px] bg-amber-50 text-amber-700 border border-amber-200 rounded-lg font-medium">📷 Foto Allagamento (Arancio)</button>
+              <button type="button" onclick="loadDemoPhoto('yellow')" class="px-2 py-0.5 text-[10px] bg-yellow-50 text-yellow-700 border border-yellow-200 rounded-lg font-medium">📷 Foto Buca (Giallo)</button>
+              <button type="button" onclick="loadDemoPhoto('meme')" class="px-2 py-0.5 text-[10px] bg-purple-50 text-purple-700 border border-purple-200 rounded-lg font-medium">⚠️ Foto Meme (Test Strike)</button>
             </div>
           </div>
         </div>
 
         <!-- AI Evaluation Result Box -->
-        <div id="aiEvaluationBox" class="hidden p-3 rounded-lg border text-xs"></div>
+        <div id="aiEvaluationBox" class="hidden p-3 rounded-xl border text-xs"></div>
 
       </div>
 
       <div class="p-3 bg-neutral-50 border-t border-neutral-100 flex justify-end gap-2">
         <button onclick="closeReportModal()" class="px-3 py-1.5 text-xs font-medium text-neutral-600 hover:text-neutral-900">Annulla</button>
-        <button id="btnSubmitReport" onclick="submitReport()" class="bg-neutral-900 hover:bg-neutral-800 text-white font-bold px-4 py-1.5 rounded-lg text-xs flex items-center gap-1.5 transition">
+        <button id="btnSubmitReport" onclick="submitReport()" class="bg-red-600 hover:bg-red-700 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 transition shadow-md">
           <i data-lucide="send" class="w-3.5 h-3.5"></i>
           <span>Invia Segnalazione</span>
         </button>
@@ -609,15 +602,15 @@
     </div>
   </div>
 
-  <!-- TOAST PROXIMITY ALERT -->
-  <div id="alertToast" class="fixed top-20 right-6 z-[2000] hidden max-w-sm w-full bg-white rounded-xl shadow-lg border border-neutral-200 p-4">
+  <!-- TOAST PROXIMITY ALERT (CASO GIULIA A 200M) -->
+  <div id="alertToast" class="fixed top-20 right-6 z-[2000] hidden max-w-sm w-full bg-white rounded-2xl shadow-2xl border-2 border-red-600 p-4 animate-in slide-in-from-top-4 duration-200">
     <div class="flex items-start gap-3">
-      <div class="w-8 h-8 rounded-full bg-neutral-100 text-neutral-800 flex items-center justify-center shrink-0">
-        <i data-lucide="bell" class="w-4 h-4"></i>
+      <div class="w-10 h-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center shrink-0">
+        <i data-lucide="bell" class="w-5 h-5 animate-bounce"></i>
       </div>
       <div class="flex-1">
         <div class="flex items-center justify-between">
-          <span class="text-[10px] uppercase font-bold text-neutral-400">Allerta di Prossimità (200m)</span>
+          <span class="text-[10px] uppercase font-black text-red-600">Allerta Prossimità (200m)</span>
           <button onclick="dismissToast()" class="text-neutral-400 hover:text-neutral-600"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
         </div>
         <h4 id="toastTitle" class="text-xs font-bold text-neutral-900 mt-0.5">Attenzione Giulia!</h4>
