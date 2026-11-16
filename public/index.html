@@ -2,8 +2,8 @@
 <html lang="it" class="h-full w-full overflow-hidden">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>CityFix · Safe Mobility | Mappa e Allerte Stradali</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>CityFix · Safe Mobility | OpenStreetMap & Allerte Stradali</title>
   
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -53,10 +53,11 @@
       padding: 0;
       overflow: hidden;
       font-family: 'Inter', sans-serif;
-      background-color: #f8fafc;
+      background-color: #f1f5f9;
+      touch-action: manipulation;
     }
     
-    /* CRITICAL FIX: Prevent Tailwind from breaking Leaflet tiles! */
+    /* CRITICAL FIX: Ensure Leaflet OpenStreetMap tiles render perfectly under Tailwind CSS */
     .leaflet-container img {
       max-width: none !important;
       max-height: none !important;
@@ -89,11 +90,10 @@
     .leaflet-popup-content-wrapper {
       border-radius: 1rem;
       padding: 0.25rem;
-      box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.15);
+      box-shadow: 0 10px 25px -5px rgb(0 0 0 / 0.15);
       border: 1px solid #E2E8F0;
     }
-    
-    /* Custom clean scrollbar */
+
     .clean-scroll::-webkit-scrollbar {
       width: 4px;
     }
@@ -105,21 +105,56 @@
 </head>
 <body class="h-full w-full relative select-none">
 
-  <!-- ==================== 1. FULLSCREEN LEAFLET MAP ==================== -->
+  <!-- ==================== 1. FULLSCREEN OPENSTREETMAP (ZERO API KEY NEEDED) ==================== -->
   <div id="map"></div>
 
   <!-- BAN BANNER (Active only if banned for 3 false reports) -->
-  <div id="userBanBanner" class="hidden absolute top-0 inset-x-0 z-50 bg-neutral-900 text-white px-4 py-2 text-center text-xs font-semibold flex items-center justify-center gap-2 shadow-lg">
-    <i data-lucide="alert-octagon" class="w-4 h-4 text-red-400"></i>
-    <span>Account temporaneamente sospeso per 24 ore (3 foto non conformi).</span>
-    <span id="banCountdownText" class="bg-black/50 px-2 py-0.5 rounded font-mono text-[11px] text-red-300"></span>
-    <button onclick="resetBanDemo()" class="underline ml-2 text-neutral-300 hover:text-white text-[11px]">Azzera Ban (Demo)</button>
+  <div id="userBanBanner" class="hidden absolute top-0 inset-x-0 z-50 bg-neutral-900 text-white px-3 py-1.5 text-center text-xs font-semibold flex items-center justify-center gap-2 shadow-lg">
+    <i data-lucide="alert-octagon" class="w-3.5 h-3.5 text-red-400"></i>
+    <span class="text-[11px]">Account sospeso per 24 ore (3 foto non conformi).</span>
+    <span id="banCountdownText" class="bg-black/50 px-1.5 py-0.5 rounded font-mono text-[10px] text-red-300"></span>
+    <button onclick="resetBanDemo()" class="underline ml-1 text-neutral-300 hover:text-white text-[10px]">Azzera (Demo)</button>
   </div>
 
-  <!-- ==================== 2. TOP-LEFT FLOATING CONTROL CARD ==================== -->
-  <div id="floatingCard" class="absolute top-4 left-4 z-20 w-84 sm:w-96 max-w-[calc(100vw-2rem)] bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-neutral-200/90 flex flex-col max-h-[calc(100vh-2rem)] transition-all duration-300">
+  <!-- ==================== 2. MOBILE TOP BAR (< md screens: NO OVERLAPPING!) ==================== -->
+  <div class="md:hidden absolute top-3 inset-x-3 z-20 flex flex-col gap-2">
     
-    <!-- Header of Card: Logo + Minimize Toggle -->
+    <!-- Top row: Brand + 112 + Accedi -->
+    <div class="bg-white/95 backdrop-blur-md rounded-2xl shadow-md border border-neutral-200/80 px-3 py-2 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <div class="w-7 h-7 rounded-xl bg-waze-blue text-white flex items-center justify-center font-black text-xs">CF</div>
+        <div>
+          <span class="font-extrabold text-xs text-neutral-900 block leading-tight">CityFix</span>
+          <span class="text-[9px] text-neutral-400 font-medium">Safe Mobility</span>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <a href="tel:112" class="flex items-center gap-1 bg-red-600 hover:bg-red-700 text-white text-[11px] font-bold px-2 py-1 rounded-full shadow-xs">
+          <i data-lucide="phone" class="w-3 h-3"></i>
+          <span>112</span>
+        </a>
+        <div id="mobileUserHeaderArea">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Second row on mobile: Search / Route pill -->
+    <button onclick="openMobileRoutePlanner()" class="bg-white/95 backdrop-blur-md rounded-2xl shadow-md border border-neutral-200/80 px-3 py-2 flex items-center justify-between text-left text-xs text-neutral-700 active:scale-98 transition">
+      <div class="flex items-center gap-2 truncate">
+        <i data-lucide="search" class="w-4 h-4 text-neutral-400 shrink-0"></i>
+        <span class="truncate font-medium text-[11px]" id="mobileSearchPreview">Cerca percorso sicuro (Istruzioni di guida)</span>
+      </div>
+      <span class="text-[10px] bg-neutral-100 text-neutral-600 font-bold px-2 py-0.5 rounded-lg shrink-0">200m</span>
+    </button>
+
+  </div>
+
+  <!-- ==================== 3. DESKTOP FLOATING CARD (>= md screens) ==================== -->
+  <div id="desktopFloatingCard" class="hidden md:flex absolute top-4 left-4 z-20 w-88 lg:w-96 bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-neutral-200/90 flex-col max-h-[calc(100vh-2rem)] transition-all duration-300">
+    
+    <!-- Header of Desktop Card -->
     <div class="px-4 py-3 border-b border-neutral-100 flex items-center justify-between">
       <div class="flex items-center gap-2.5">
         <div class="w-8 h-8 rounded-xl bg-waze-blue text-white flex items-center justify-center font-black text-xs shadow-sm">
@@ -127,47 +162,46 @@
         </div>
         <div>
           <h2 class="font-extrabold text-sm text-neutral-900 leading-tight">CityFix · Safe Mobility</h2>
-          <p class="text-[10px] text-neutral-400 font-medium">Puglia · Galatina & Bari</p>
+          <p class="text-[10px] text-neutral-400 font-medium">OpenStreetMap · Galatina & Bari</p>
         </div>
       </div>
 
-      <button onclick="toggleCardCollapse()" class="p-1.5 rounded-lg hover:bg-neutral-100 text-neutral-500 transition" title="Riduci/Espandi Scheda">
-        <i id="collapseIcon" data-lucide="chevron-up" class="w-4 h-4"></i>
+      <button onclick="toggleDesktopCardCollapse()" class="p-1.5 rounded-lg hover:bg-neutral-100 text-neutral-500 transition" title="Riduci/Espandi">
+        <i id="desktopCollapseIcon" data-lucide="chevron-up" class="w-4 h-4"></i>
       </button>
     </div>
 
     <!-- Category Tabs Bar (The 4 Specific Categories: Mappa, Notifiche Pericoli, Istruzioni, Legenda) -->
-    <div class="px-3 pt-2 pb-1 border-b border-neutral-100 bg-neutral-50/70 flex items-center gap-1 text-xs font-bold">
-      <button onclick="switchTab('mappa')" id="tabBtnMappa" class="flex-1 py-1.5 px-2 rounded-lg bg-neutral-900 text-white shadow-xs transition text-center flex items-center justify-center gap-1.5">
+    <div class="px-2.5 pt-2 pb-1 border-b border-neutral-100 bg-neutral-50/70 flex items-center gap-1 text-xs font-bold">
+      <button onclick="switchTab('mappa')" id="tabBtnMappa" class="flex-1 py-1.5 px-2 rounded-lg bg-neutral-900 text-white shadow-xs transition text-center flex items-center justify-center gap-1">
         <i data-lucide="map" class="w-3.5 h-3.5"></i>
         <span>Mappa</span>
       </button>
-      <button onclick="switchTab('notifiche-pericoli')" id="tabBtnPericoli" class="flex-1 py-1.5 px-2 rounded-lg text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 transition text-center flex items-center justify-center gap-1.5 relative">
+      <button onclick="switchTab('notifiche-pericoli')" id="tabBtnPericoli" class="flex-1 py-1.5 px-2 rounded-lg text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 transition text-center flex items-center justify-center gap-1 relative">
         <i data-lucide="alert-triangle" class="w-3.5 h-3.5"></i>
         <span>Pericoli</span>
         <span id="badgePericoliCount" class="w-4 h-4 rounded-full bg-red-600 text-white text-[9px] font-black flex items-center justify-center ml-0.5">3</span>
       </button>
-      <button onclick="switchTab('istruzioni')" id="tabBtnIstruzioni" class="flex-1 py-1.5 px-2 rounded-lg text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 transition text-center flex items-center justify-center gap-1.5">
+      <button onclick="switchTab('istruzioni')" id="tabBtnIstruzioni" class="flex-1 py-1.5 px-2 rounded-lg text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 transition text-center flex items-center justify-center gap-1">
         <i data-lucide="book-open" class="w-3.5 h-3.5"></i>
         <span>Istruzioni</span>
       </button>
-      <button onclick="switchTab('legenda')" id="tabBtnLegenda" class="flex-1 py-1.5 px-2 rounded-lg text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 transition text-center flex items-center justify-center gap-1.5">
+      <button onclick="switchTab('legenda')" id="tabBtnLegenda" class="flex-1 py-1.5 px-2 rounded-lg text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 transition text-center flex items-center justify-center gap-1">
         <i data-lucide="list" class="w-3.5 h-3.5"></i>
         <span>Legenda</span>
       </button>
     </div>
 
-    <!-- Card Scrollable Content Area -->
-    <div id="cardContentArea" class="p-4 overflow-y-auto clean-scroll flex-1 space-y-3.5 text-xs">
+    <!-- Scrollable Content Area -->
+    <div id="desktopCardContentArea" class="p-4 overflow-y-auto clean-scroll flex-1 space-y-3.5 text-xs">
       
-      <!-- ==================== CATEGORIA 1: MAPPA (ISTRUZIONI DI GUIDA & PERCORSO) ==================== -->
-      <div id="contentMappa" class="space-y-3">
+      <!-- TAB 1: MAPPA (ISTRUZIONI DI GUIDA) -->
+      <div id="desktopContentMappa" class="space-y-3">
         <div class="flex items-center justify-between">
           <span class="text-[11px] font-bold text-neutral-400 uppercase tracking-wider">Istruzioni di guida</span>
-          <span class="text-[10px] text-neutral-400">Navigazione protetta</span>
+          <span class="text-[10px] text-neutral-400 font-medium">OpenStreetMap</span>
         </div>
 
-        <!-- Start & Destination Inputs with Visual Connective Track -->
         <div class="flex items-stretch gap-2.5">
           <div class="flex flex-col items-center justify-between py-2 shrink-0">
             <div class="w-3.5 h-3.5 rounded-full border-2 border-waze-blue bg-white"></div>
@@ -177,26 +211,25 @@
 
           <div class="flex-1 space-y-2">
             <div class="relative flex items-center bg-waze-bgInput rounded-xl px-3 py-2 border border-neutral-200/80">
-              <input type="text" id="routeStart" value="La tua posizione (Giulia in bici)" class="w-full bg-transparent text-xs font-semibold text-neutral-800 focus:outline-none" placeholder="Scegli il punto di partenza">
+              <input type="text" id="routeStart" value="La tua posizione (Giulia in bici)" class="w-full bg-transparent text-xs font-semibold text-neutral-800 focus:outline-none" placeholder="Scegli punto di partenza">
               <i data-lucide="search" class="w-3.5 h-3.5 text-neutral-400 shrink-0"></i>
             </div>
 
             <div class="relative flex items-center bg-waze-bgInput rounded-xl px-3 py-2 border border-neutral-200/80">
-              <input type="text" id="routeEnd" value="Scuola / Polo Innovazione" class="w-full bg-transparent text-xs font-semibold text-neutral-800 focus:outline-none" placeholder="Scegli la destinazione">
+              <input type="text" id="routeEnd" value="Scuola / Polo Innovazione" class="w-full bg-transparent text-xs font-semibold text-neutral-800 focus:outline-none" placeholder="Scegli destinazione">
               <i data-lucide="search" class="w-3.5 h-3.5 text-neutral-400 shrink-0"></i>
             </div>
           </div>
 
-          <button onclick="swapRouteEndpoints()" class="self-center p-2 rounded-xl hover:bg-neutral-100 text-neutral-400 hover:text-neutral-700 transition" title="Inverti punti">
+          <button onclick="swapRouteEndpoints()" class="self-center p-2 rounded-xl hover:bg-neutral-100 text-neutral-400 hover:text-neutral-700 transition" title="Inverti">
             <i data-lucide="arrow-up-down" class="w-4 h-4"></i>
           </button>
         </div>
 
-        <!-- Radius Selector & Options -->
         <div class="pt-2 border-t border-neutral-100 flex items-center justify-between">
-          <div class="flex items-center gap-1.5">
+          <div class="flex items-center gap-1">
             <span class="text-[10px] font-bold text-neutral-400">RAGGIO:</span>
-            <button onclick="setRadius(200)" id="radBtn200" class="px-2 py-1 rounded bg-neutral-900 text-white font-bold text-[10px] transition">200m (Bici)</button>
+            <button onclick="setRadius(200)" id="radBtn200" class="px-2 py-1 rounded bg-neutral-900 text-white font-bold text-[10px] transition">200m</button>
             <button onclick="setRadius(500)" id="radBtn500" class="px-2 py-1 rounded text-neutral-600 hover:bg-neutral-100 text-[10px] transition">500m</button>
             <button onclick="setRadius(1500)" id="radBtn1500" class="px-2 py-1 rounded text-neutral-600 hover:bg-neutral-100 text-[10px] transition">1.5km</button>
           </div>
@@ -207,11 +240,10 @@
           </button>
         </div>
 
-        <!-- Quick Giulia Simulator Alert trigger -->
         <div class="p-2.5 rounded-xl bg-neutral-50 border border-neutral-200 flex items-center justify-between gap-2">
           <div class="text-[11px]">
-            <span class="font-bold text-neutral-800 block">Simulatore Allerta 200m:</span>
-            <span class="text-neutral-500 text-[10px]">Verifica l'avviso di deviazione per Giulia</span>
+            <span class="font-bold text-neutral-800 block">Simulatore Allerta Giulia:</span>
+            <span class="text-neutral-500 text-[10px]">Test avviso acustico a 200m</span>
           </div>
           <button onclick="simulateGiuliaApproach()" class="bg-white hover:bg-neutral-100 border border-neutral-300 text-neutral-800 text-[10px] font-bold px-2.5 py-1.5 rounded-lg transition shrink-0">
             Simula Ora
@@ -219,110 +251,88 @@
         </div>
       </div>
 
-      <!-- ==================== CATEGORIA 2: NOTIFICHE PERICOLI ==================== -->
-      <div id="contentPericoli" class="space-y-3 hidden">
+      <!-- TAB 2: NOTIFICHE PERICOLI -->
+      <div id="desktopContentPericoli" class="space-y-3 hidden">
         <div class="flex items-center justify-between">
           <span class="text-[11px] font-bold text-neutral-400 uppercase tracking-wider">Pericoli Attivi nel Salento</span>
           <span class="text-[10px] bg-red-100 text-red-700 font-bold px-2 py-0.5 rounded-full" id="pericoliCountLabel">3 segnalazioni</span>
         </div>
-
-        <!-- Active Hazards List -->
-        <div id="hazardsListContainer" class="space-y-2.5">
-          <!-- Populated by JS -->
-        </div>
+        <div id="hazardsListContainer" class="space-y-2.5"></div>
       </div>
 
-      <!-- ==================== CATEGORIA 3: ISTRUZIONI ==================== -->
-      <div id="contentIstruzioni" class="space-y-3 hidden leading-relaxed text-neutral-600">
+      <!-- TAB 3: ISTRUZIONI -->
+      <div id="desktopContentIstruzioni" class="space-y-3 hidden leading-relaxed text-neutral-600">
         <div class="p-3 bg-neutral-50 rounded-xl border border-neutral-200">
-          <h4 class="font-bold text-neutral-900 text-xs mb-1 flex items-center gap-1.5">
-            <span class="w-4 h-4 rounded-full bg-neutral-900 text-white text-[10px] flex items-center justify-center font-bold">1</span>
-            Segnala un pericolo in 3 secondi
-          </h4>
-          <p class="text-[11px]">Clicca sul pulsante rosso con la matita in basso a destra. Scegli la categoria, carica una foto reale e invia: il Bot AI esegue la validazione immediata.</p>
+          <h4 class="font-bold text-neutral-900 text-xs mb-1">01. Segnala in 3 secondi</h4>
+          <p class="text-[11px]">Usa il tasto rosso in basso a destra. Scatta o carica una foto: il Bot AI convalida la veridicità in tempo reale.</p>
         </div>
-
         <div class="p-3 bg-neutral-50 rounded-xl border border-neutral-200">
-          <h4 class="font-bold text-neutral-900 text-xs mb-1 flex items-center gap-1.5">
-            <span class="w-4 h-4 rounded-full bg-neutral-900 text-white text-[10px] flex items-center justify-center font-bold">2</span>
-            Avviso di prossimità a 200m
-          </h4>
-          <p class="text-[11px]">Chiunque si muova a piedi o in bicicletta riceve una notifica acustica e visiva appena entra nel raggio di 200 metri dall'evento, con suggerimento di deviazione.</p>
+          <h4 class="font-bold text-neutral-900 text-xs mb-1">02. Allerte di prossimità a 200m</h4>
+          <p class="text-[11px]">Avviso acustico e visivo istantaneo per chi è in avvicinamento entro 200 metri.</p>
         </div>
-
         <div class="p-3 bg-neutral-50 rounded-xl border border-neutral-200">
-          <h4 class="font-bold text-neutral-900 text-xs mb-1 flex items-center gap-1.5">
-            <span class="w-4 h-4 rounded-full bg-neutral-900 text-white text-[10px] flex items-center justify-center font-bold">3</span>
-            Rimozione collaborativa
-          </h4>
-          <p class="text-[11px]">Ogni pericolo ha un timer di 1 ora. Se due persone che transitano confermano <b>«Non c'è più»</b>, la segnalazione sparisce subito dalla mappa.</p>
+          <h4 class="font-bold text-neutral-900 text-xs mb-1">03. Rimozione collaborativa</h4>
+          <p class="text-[11px]">Due voti su <b>«Non c'è più»</b> rimuovono subito il pericolo dalla mappa.</p>
         </div>
-
         <div class="p-3 bg-red-50 rounded-xl border border-red-200 text-red-800">
-          <h4 class="font-bold text-red-900 text-xs mb-1 flex items-center gap-1.5">
-            <i data-lucide="phone-call" class="w-3.5 h-3.5 text-red-600"></i>
-            Emergenze gravi: chiama sempre il 112
-          </h4>
-          <p class="text-[11px]">Per incidenti con feriti, incendi o risse violente, contatta immediatamente il <b>112</b> prima di inviare la segnalazione civica.</p>
+          <h4 class="font-bold text-red-900 text-xs mb-1">Emergenze gravi: chiama il 112</h4>
+          <p class="text-[11px]">Contatta sempre il <b>112</b> per incidenti con feriti o situazioni critiche.</p>
         </div>
       </div>
 
-      <!-- ==================== CATEGORIA 4: LEGENDA ==================== -->
-      <div id="contentLegenda" class="space-y-3 hidden">
-        <div class="p-3 rounded-xl border border-red-200 bg-red-50/80">
+      <!-- TAB 4: LEGENDA -->
+      <div id="desktopContentLegenda" class="space-y-3 hidden">
+        <div class="p-2.5 rounded-xl border border-red-200 bg-red-50/80">
           <div class="flex items-center gap-2 mb-1">
             <span class="w-3 h-3 rounded-full bg-severity-red"></span>
             <span class="font-bold text-red-900 text-xs">CODICE ROSSO (Grave)</span>
           </div>
-          <p class="text-[11px] text-red-700 leading-tight">Pericolo immediato per la vita (incidente grave, rissa violenta, crollo). Notifica prioritaria e 112.</p>
+          <p class="text-[11px] text-red-700 leading-tight">Pericolo immediato per la vita. Notifica prioritaria e 112.</p>
         </div>
-
-        <div class="p-3 rounded-xl border border-amber-200 bg-amber-50/80">
+        <div class="p-2.5 rounded-xl border border-amber-200 bg-amber-50/80">
           <div class="flex items-center gap-2 mb-1">
             <span class="w-3 h-3 rounded-full bg-severity-orange"></span>
             <span class="font-bold text-amber-900 text-xs">CODICE ARANCIONE (Medio)</span>
           </div>
-          <p class="text-[11px] text-amber-800 leading-tight">Rischio moderato (strada allagata, ostacolo carreggiata, principio di rissa). Richiede attenzione e deviazione.</p>
+          <p class="text-[11px] text-amber-800 leading-tight">Rischio moderato (allagamenti, ostacoli carreggiata). Richiede cautela.</p>
         </div>
-
-        <div class="p-3 rounded-xl border border-yellow-200 bg-yellow-50/80">
+        <div class="p-2.5 rounded-xl border border-yellow-200 bg-yellow-50/80">
           <div class="flex items-center gap-2 mb-1">
             <span class="w-3 h-3 rounded-full bg-severity-yellow"></span>
             <span class="font-bold text-yellow-900 text-xs">CODICE GIALLO (Basso)</span>
           </div>
-          <p class="text-[11px] text-yellow-800 leading-tight">Disagio lieve senza minaccia vitale (buca, ramo su marciapiede, traffico).</p>
+          <p class="text-[11px] text-yellow-800 leading-tight">Disagio lieve (buche, rami caduti).</p>
         </div>
-
-        <div class="p-3 rounded-xl border border-neutral-200 bg-neutral-50 text-neutral-700">
-          <span class="font-bold text-neutral-900 block mb-1 text-xs">Regola Anti-Abuso (Bot AI):</span>
-          <p class="text-[11px] leading-tight">Il bot scarta meme, foto di schermi e immagini false. Ogni violazione assegna 1 strike: al <b>3° strike</b> scatta il <b>ban di 24 ore</b>.</p>
+        <div class="p-2.5 rounded-xl border border-neutral-200 bg-neutral-50 text-neutral-700">
+          <span class="font-bold text-neutral-900 block mb-1 text-xs">Regola Anti-Abuso Bot AI:</span>
+          <p class="text-[11px] leading-tight">3 foto false = <b>Ban 24h automatico</b>.</p>
         </div>
       </div>
 
     </div>
 
-    <!-- Bottom Action inside Card -->
+    <!-- Desktop Card Footer -->
     <div class="p-3 bg-neutral-50 border-t border-neutral-100 flex items-center justify-between">
-      <span class="text-[10px] text-neutral-400 font-medium">Safe Mobility Didap 2026</span>
+      <span class="text-[10px] text-neutral-400 font-medium">Safe Mobility · Didap 2026</span>
       <button onclick="openReportModal()" class="bg-red-600 hover:bg-red-700 text-white font-bold text-[11px] px-3.5 py-1.5 rounded-lg transition shadow-xs flex items-center gap-1.5">
         <i data-lucide="plus" class="w-3.5 h-3.5"></i>
-        <span>Segnala Pericolo</span>
+        <span>Segnala</span>
       </button>
     </div>
 
   </div>
 
-  <!-- Minimized Floating Pill (When card is collapsed) -->
-  <button id="minimizedPill" onclick="toggleCardCollapse()" class="hidden absolute top-4 left-4 z-20 bg-white/95 backdrop-blur-md px-4 py-2.5 rounded-2xl shadow-xl border border-neutral-200/90 flex items-center gap-2.5 text-xs font-bold text-neutral-800 hover:bg-neutral-50 transition">
+  <!-- Minimized Desktop Pill -->
+  <button id="desktopMinimizedPill" onclick="toggleDesktopCardCollapse()" class="hidden absolute top-4 left-4 z-20 bg-white/95 backdrop-blur-md px-4 py-2.5 rounded-2xl shadow-xl border border-neutral-200/90 items-center gap-2.5 text-xs font-bold text-neutral-800 hover:bg-neutral-50 transition">
     <div class="w-6 h-6 rounded-lg bg-waze-blue text-white flex items-center justify-center text-[10px]">CF</div>
     <span>Istruzioni & Pericoli</span>
     <i data-lucide="chevron-down" class="w-4 h-4 text-neutral-400"></i>
   </button>
 
-  <!-- ==================== 3. TOP-RIGHT FLOATING CONTROLS ==================== -->
-  <div class="absolute top-4 right-4 z-20 flex items-center gap-2.5">
+  <!-- ==================== 4. DESKTOP TOP-RIGHT CONTROLS (>= md screens) ==================== -->
+  <div class="hidden md:flex absolute top-4 right-4 z-20 items-center gap-2.5">
     
-    <!-- 9-Dots Grid Button (Screenshot 2 exact style) -->
+    <!-- 9-Dots Grid Button -->
     <div class="relative">
       <button onclick="toggleAppMenu()" id="btnAppMenu" class="w-10 h-10 rounded-full bg-white shadow-md border border-neutral-200/80 flex items-center justify-center text-neutral-700 hover:bg-neutral-50 transition" title="Menu Categorie">
         <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24">
@@ -339,55 +349,32 @@
       </button>
 
       <!-- 9-Dots Dropdown Menu -->
-      <div id="appDropdownMenu" class="hidden absolute right-0 mt-2 w-60 bg-white rounded-2xl shadow-2xl border border-neutral-200 p-2 z-50 animate-in fade-in zoom-in-95 duration-150">
+      <div id="appDropdownMenu" class="hidden absolute right-0 mt-2 w-56 bg-white rounded-2xl shadow-2xl border border-neutral-200 p-2 z-50">
         <div class="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-neutral-400 border-b border-neutral-100">
-          CityFix · Categorie
+          Categorie
         </div>
         <div class="space-y-1 py-1">
           <button onclick="switchTab('mappa'); toggleAppMenu();" class="w-full flex items-center gap-2.5 px-3 py-2 text-left rounded-xl hover:bg-neutral-50 text-neutral-800 transition">
-            <div class="w-7 h-7 rounded-lg bg-blue-50 text-waze-blue flex items-center justify-center shrink-0">
-              <i data-lucide="map" class="w-4 h-4"></i>
-            </div>
-            <div>
-              <div class="text-xs font-bold">Mappa</div>
-              <div class="text-[10px] text-neutral-400">Navigazione e radar</div>
-            </div>
+            <i data-lucide="map" class="w-4 h-4 text-waze-blue"></i>
+            <span class="text-xs font-bold">Mappa</span>
           </button>
-
           <button onclick="switchTab('notifiche-pericoli'); toggleAppMenu();" class="w-full flex items-center gap-2.5 px-3 py-2 text-left rounded-xl hover:bg-neutral-50 text-neutral-800 transition">
-            <div class="w-7 h-7 rounded-lg bg-red-50 text-red-500 flex items-center justify-center shrink-0">
-              <i data-lucide="alert-triangle" class="w-4 h-4"></i>
-            </div>
-            <div>
-              <div class="text-xs font-bold">Notifiche pericoli</div>
-              <div class="text-[10px] text-neutral-400">Segnalazioni attive</div>
-            </div>
+            <i data-lucide="alert-triangle" class="w-4 h-4 text-red-500"></i>
+            <span class="text-xs font-bold">Notifiche pericoli</span>
           </button>
-
           <button onclick="switchTab('istruzioni'); toggleAppMenu();" class="w-full flex items-center gap-2.5 px-3 py-2 text-left rounded-xl hover:bg-neutral-50 text-neutral-800 transition">
-            <div class="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
-              <i data-lucide="book-open" class="w-4 h-4"></i>
-            </div>
-            <div>
-              <div class="text-xs font-bold">Istruzioni</div>
-              <div class="text-[10px] text-neutral-400">Guida alla sicurezza</div>
-            </div>
+            <i data-lucide="book-open" class="w-4 h-4 text-emerald-600"></i>
+            <span class="text-xs font-bold">Istruzioni</span>
           </button>
-
           <button onclick="switchTab('legenda'); toggleAppMenu();" class="w-full flex items-center gap-2.5 px-3 py-2 text-left rounded-xl hover:bg-neutral-50 text-neutral-800 transition">
-            <div class="w-7 h-7 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
-              <i data-lucide="list" class="w-4 h-4"></i>
-            </div>
-            <div>
-              <div class="text-xs font-bold">Legenda</div>
-              <div class="text-[10px] text-neutral-400">Codici colore e Ban 24h</div>
-            </div>
+            <i data-lucide="list" class="w-4 h-4 text-amber-600"></i>
+            <span class="text-xs font-bold">Legenda</span>
           </button>
         </div>
       </div>
     </div>
 
-    <!-- 3-Dots More Options (Screenshot 1 exact style) -->
+    <!-- 3-Dots More Options -->
     <div class="relative">
       <button onclick="toggleMoreMenu()" id="btnMoreMenu" class="w-10 h-10 rounded-full bg-white shadow-md border border-neutral-200/80 flex items-center justify-center text-neutral-700 hover:bg-neutral-50 transition" title="Altro">
         <i data-lucide="more-vertical" class="w-4 h-4"></i>
@@ -399,26 +386,24 @@
       </div>
     </div>
 
-    <!-- Accedi Button / Profile Pill (Screenshot exact Waze blue button) -->
-    <div id="userHeaderArea">
-      <!-- Populated by JS -->
-    </div>
+    <!-- Accedi Button / Profile Pill -->
+    <div id="desktopUserHeaderArea"></div>
 
     <!-- Direct 112 Emergency Pill -->
-    <a href="tel:112" class="hidden sm:flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-3 py-2 rounded-full shadow-md transition" title="Numero Emergenze 112">
+    <a href="tel:112" class="flex items-center gap-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-3 py-2 rounded-full shadow-md transition" title="Emergenze 112">
       <i data-lucide="phone" class="w-3.5 h-3.5"></i>
       <span>112</span>
     </a>
 
   </div>
 
-  <!-- ==================== 4. BOTTOM-RIGHT FLOATING CONTROLS: FAB, GPS, ZOOM ==================== -->
-  <div class="absolute bottom-6 right-6 z-20 flex flex-col items-center gap-3">
+  <!-- ==================== 5. BOTTOM-RIGHT FLOATING CONTROLS ==================== -->
+  <div class="absolute bottom-20 md:bottom-6 right-4 md:right-6 z-20 flex flex-col items-center gap-2.5">
     
-    <!-- Red FAB: Segnala Pericolo in 3 Secondi (Exact circular pencil icon from screenshot) -->
-    <button onclick="openReportModal()" class="w-12 h-12 rounded-full bg-red-600 hover:bg-red-700 text-white shadow-2xl flex items-center justify-center transition active:scale-95 group relative" title="Segnala Pericolo in 3 Secondi">
-      <i data-lucide="edit-3" class="w-5 h-5"></i>
-      <span class="absolute right-14 whitespace-nowrap bg-neutral-900 text-white text-xs font-bold px-2.5 py-1 rounded-lg shadow-md opacity-0 group-hover:opacity-100 transition pointer-events-none">
+    <!-- Red FAB: Segnala Pericolo in 3 Secondi -->
+    <button onclick="openReportModal()" class="w-12 h-12 md:w-14 md:h-14 rounded-full bg-red-600 hover:bg-red-700 text-white shadow-2xl flex items-center justify-center transition active:scale-95 group relative" title="Segnala Pericolo in 3 Secondi">
+      <i data-lucide="edit-3" class="w-5 h-5 md:w-6 md:h-6"></i>
+      <span class="hidden md:block absolute right-16 whitespace-nowrap bg-neutral-900 text-white text-xs font-bold px-2.5 py-1 rounded-lg shadow-md opacity-0 group-hover:opacity-100 transition pointer-events-none">
         Segnala Pericolo
       </span>
     </button>
@@ -428,67 +413,135 @@
       <i data-lucide="crosshair" class="w-4 h-4"></i>
     </button>
 
-    <!-- Vertical Zoom Pill (+ / -) -->
-    <div class="bg-white rounded-full shadow-md border border-neutral-200/80 flex flex-col items-center overflow-hidden">
-      <button onclick="state.map.zoomIn()" class="w-10 h-10 flex items-center justify-center text-neutral-700 hover:bg-neutral-50 transition border-b border-neutral-100 font-bold text-lg">
+    <!-- Vertical Zoom Pill (Hidden on small mobile to avoid screen clutter) -->
+    <div class="hidden sm:flex bg-white rounded-full shadow-md border border-neutral-200/80 flex-col items-center overflow-hidden">
+      <button onclick="state.map.zoomIn()" class="w-9 h-9 flex items-center justify-center text-neutral-700 hover:bg-neutral-50 transition border-b border-neutral-100 font-bold text-base">
         +
       </button>
-      <button onclick="state.map.zoomOut()" class="w-10 h-10 flex items-center justify-center text-neutral-700 hover:bg-neutral-50 transition font-bold text-lg">
+      <button onclick="state.map.zoomOut()" class="w-9 h-9 flex items-center justify-center text-neutral-700 hover:bg-neutral-50 transition font-bold text-base">
         −
       </button>
     </div>
 
   </div>
 
-  <!-- ==================== 5. BOTTOM-LEFT FLOATING CONTROL: SIMULATORE GIULIA ==================== -->
-  <div class="absolute bottom-6 left-6 z-20">
-    <button onclick="simulateGiuliaApproach()" class="w-12 h-12 rounded-2xl bg-white hover:bg-neutral-50 text-neutral-700 shadow-lg border border-neutral-200/80 flex items-center justify-center transition group relative" title="Simula Allerta Giulia a 200m">
-      <i data-lucide="refresh-cw" class="w-5 h-5 text-neutral-700 group-hover:rotate-180 transition duration-500"></i>
+  <!-- ==================== 6. BOTTOM-LEFT DESKTOP CONTROL ==================== -->
+  <div class="hidden md:block absolute bottom-6 left-6 z-20">
+    <button onclick="simulateGiuliaApproach()" class="w-11 h-11 rounded-2xl bg-white hover:bg-neutral-50 text-neutral-700 shadow-lg border border-neutral-200/80 flex items-center justify-center transition group relative" title="Simula Allerta Giulia (200m)">
+      <i data-lucide="refresh-cw" class="w-4 h-4 text-neutral-700 group-hover:rotate-180 transition duration-500"></i>
       <span class="absolute left-14 whitespace-nowrap bg-neutral-900 text-white text-xs font-bold px-2.5 py-1 rounded-lg shadow-md opacity-0 group-hover:opacity-100 transition pointer-events-none">
         Simula Allerta Giulia (200m)
       </span>
     </button>
   </div>
 
-  <!-- ==================== MODALS ==================== -->
+  <!-- ==================== 7. MOBILE BOTTOM NAVIGATION BAR (FIXED, TOUCH-OPTIMIZED) ==================== -->
+  <nav class="md:hidden fixed bottom-0 inset-x-0 z-30 bg-white/95 backdrop-blur-md border-t border-neutral-200/80 px-2 py-1 flex items-center justify-around shadow-lg">
+    
+    <button onclick="mobileSwitchTab('mappa')" id="mNavMappa" class="flex flex-col items-center py-1 px-3 text-neutral-900 font-bold transition">
+      <i data-lucide="map" class="w-5 h-5"></i>
+      <span class="text-[10px] mt-0.5">Mappa</span>
+    </button>
+
+    <button onclick="mobileSwitchTab('notifiche-pericoli')" id="mNavPericoli" class="flex flex-col items-center py-1 px-3 text-neutral-500 font-medium transition relative">
+      <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+      <span class="text-[10px] mt-0.5">Pericoli</span>
+      <span id="mBadgePericoli" class="absolute top-0.5 right-2 w-3.5 h-3.5 bg-red-600 text-white rounded-full text-[8px] font-black flex items-center justify-center">3</span>
+    </button>
+
+    <button onclick="mobileSwitchTab('istruzioni')" id="mNavIstruzioni" class="flex flex-col items-center py-1 px-3 text-neutral-500 font-medium transition">
+      <i data-lucide="book-open" class="w-5 h-5"></i>
+      <span class="text-[10px] mt-0.5">Istruzioni</span>
+    </button>
+
+    <button onclick="mobileSwitchTab('legenda')" id="mNavLegenda" class="flex flex-col items-center py-1 px-3 text-neutral-500 font-medium transition">
+      <i data-lucide="list" class="w-5 h-5"></i>
+      <span class="text-[10px] mt-0.5">Legenda</span>
+    </button>
+
+  </nav>
+
+  <!-- ==================== 8. MOBILE BOTTOM SHEET (FOR PERICOLI, ISTRUZIONI, LEGENDA) ==================== -->
+  <div id="mobileBottomSheet" class="hidden md:hidden fixed inset-x-0 bottom-14 z-30 bg-white rounded-t-3xl shadow-2xl border-t border-neutral-200 max-h-[75vh] flex flex-col animate-in slide-in-from-bottom duration-200">
+    
+    <!-- Drag / Header bar -->
+    <div class="p-3 border-b border-neutral-100 flex items-center justify-between">
+      <div class="w-10 h-1 bg-neutral-300 rounded-full mx-auto absolute left-1/2 -translate-x-1/2 top-2"></div>
+      <h3 id="mobileSheetTitle" class="font-extrabold text-xs text-neutral-900 uppercase tracking-tight mt-1">Notifiche Pericoli</h3>
+      <button onclick="closeMobileBottomSheet()" class="p-1 rounded-lg text-neutral-400 hover:text-neutral-700">
+        <i data-lucide="x" class="w-4 h-4"></i>
+      </button>
+    </div>
+
+    <!-- Sheet Content -->
+    <div id="mobileSheetContent" class="p-4 overflow-y-auto clean-scroll space-y-3 flex-1 text-xs">
+      <!-- Populated dynamically -->
+    </div>
+  </div>
+
+  <!-- ==================== 9. MOBILE ROUTE PLANNER MODAL ==================== -->
+  <div id="mobileRouteModal" class="hidden md:hidden fixed inset-0 z-40 bg-neutral-900/40 backdrop-blur-xs flex flex-col justify-end">
+    <div class="bg-white rounded-t-3xl shadow-2xl p-4 space-y-3 animate-in slide-in-from-bottom duration-200">
+      <div class="flex items-center justify-between border-b border-neutral-100 pb-2">
+        <h4 class="font-bold text-xs text-neutral-900">Istruzioni di guida · Calcola Percorso</h4>
+        <button onclick="closeMobileRoutePlanner()" class="text-neutral-400 hover:text-neutral-700 p-1"><i data-lucide="x" class="w-4 h-4"></i></button>
+      </div>
+
+      <div class="space-y-2">
+        <input type="text" id="mRouteStart" value="La tua posizione (Giulia in bici)" class="w-full bg-neutral-100 rounded-xl px-3 py-2 text-xs font-semibold text-neutral-800" placeholder="Punto di partenza">
+        <input type="text" id="mRouteEnd" value="Scuola / Polo Innovazione" class="w-full bg-neutral-100 rounded-xl px-3 py-2 text-xs font-semibold text-neutral-800" placeholder="Destinazione">
+      </div>
+
+      <div class="flex items-center justify-between pt-1">
+        <div class="flex items-center gap-1">
+          <button onclick="setRadius(200); closeMobileRoutePlanner();" class="px-2.5 py-1 rounded bg-neutral-900 text-white font-bold text-[10px]">200m (Bici)</button>
+          <button onclick="setRadius(500); closeMobileRoutePlanner();" class="px-2.5 py-1 rounded bg-neutral-100 text-neutral-600 text-[10px]">500m</button>
+        </div>
+
+        <button onclick="calculateSafeRoute(); closeMobileRoutePlanner();" class="bg-waze-blue text-white font-bold text-xs px-4 py-2 rounded-xl shadow-xs">
+          Calcola Percorso Sicuro
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 10. AUTH & REPORT MODALS ==================== -->
 
   <!-- AUTH MODAL -->
   <div id="authModal" class="hidden fixed inset-0 bg-neutral-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
     <div class="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden border border-neutral-200">
       
-      <div class="p-5 bg-neutral-900 text-white text-center relative">
-        <h3 class="text-base font-bold">CityFix · Safe Mobility</h3>
-        <p class="text-xs text-neutral-400">Accedi o registrati per segnalare</p>
-        <button onclick="hideAuthModal()" class="absolute top-4 right-4 text-neutral-400 hover:text-white">
+      <div class="p-4 bg-neutral-900 text-white text-center relative">
+        <h3 class="text-sm font-bold">CityFix · Safe Mobility</h3>
+        <p class="text-[11px] text-neutral-400">Accedi o registrati per segnalare</p>
+        <button onclick="hideAuthModal()" class="absolute top-3.5 right-4 text-neutral-400 hover:text-white">
           <i data-lucide="x" class="w-4 h-4"></i>
         </button>
       </div>
 
-      <!-- Tab Buttons -->
       <div class="flex border-b border-neutral-200 text-xs font-bold bg-neutral-50">
-        <button id="authTabLogin" onclick="setAuthTab('login')" class="flex-1 py-3 text-center text-neutral-900 border-b-2 border-neutral-900">
+        <button id="authTabLogin" onclick="setAuthTab('login')" class="flex-1 py-2.5 text-center text-neutral-900 border-b-2 border-neutral-900">
           Accedi
         </button>
-        <button id="authTabRegister" onclick="setAuthTab('register')" class="flex-1 py-3 text-center text-neutral-400 hover:text-neutral-700">
+        <button id="authTabRegister" onclick="setAuthTab('register')" class="flex-1 py-2.5 text-center text-neutral-400 hover:text-neutral-700">
           Registrazione
         </button>
-        <button id="authTabForgot" onclick="setAuthTab('forgot')" class="flex-1 py-3 text-center text-neutral-400 hover:text-neutral-700">
+        <button id="authTabForgot" onclick="setAuthTab('forgot')" class="flex-1 py-2.5 text-center text-neutral-400 hover:text-neutral-700">
           Password Dimenticata
         </button>
       </div>
 
-      <div class="p-5">
-        <div id="authError" class="hidden mb-3 p-2.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs">
+      <div class="p-4">
+        <div id="authError" class="hidden mb-3 p-2 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs">
           <span id="authErrorMsg">Errore</span>
         </div>
-        <div id="authSuccess" class="hidden mb-3 p-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs">
+        <div id="authSuccess" class="hidden mb-3 p-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs">
           <span id="authSuccessMsg">Successo</span>
         </div>
 
-        <!-- LOGIN -->
         <form id="formLogin" onsubmit="handleLogin(event)" class="space-y-3">
           <div>
-            <label class="block text-xs font-bold text-neutral-700 mb-1">Email o Numero di Telefono</label>
+            <label class="block text-xs font-bold text-neutral-700 mb-1">Email o Telefono</label>
             <input type="text" id="loginIdentifier" required placeholder="marco.rossi@email.it o 333..." class="w-full px-3 py-2 text-xs rounded-xl border border-neutral-300 focus:outline-none focus:border-neutral-900">
           </div>
           <div>
@@ -498,67 +551,65 @@
             </div>
             <input type="password" id="loginPassword" required placeholder="••••••••" class="w-full px-3 py-2 text-xs rounded-xl border border-neutral-300 focus:outline-none focus:border-neutral-900">
           </div>
-          <button type="submit" class="w-full bg-waze-blue hover:bg-waze-blueHover text-white font-bold py-2.5 rounded-xl text-xs transition shadow-sm">
+          <button type="submit" class="w-full bg-waze-blue hover:bg-waze-blueHover text-white font-bold py-2 rounded-xl text-xs transition shadow-sm">
             Accedi
           </button>
           
-          <div class="pt-3 border-t border-neutral-100 text-center">
-            <p class="text-[10px] text-neutral-400 mb-1.5 uppercase font-bold">Accesso Rapido Demo Giuria:</p>
+          <div class="pt-2.5 border-t border-neutral-100 text-center">
+            <p class="text-[10px] text-neutral-400 mb-1 uppercase font-bold">Accesso Rapido Demo:</p>
             <div class="flex justify-center gap-1.5">
-              <button type="button" onclick="quickFillLogin('marco.rossi@email.it', 'Password123!')" class="px-2.5 py-1 text-[11px] font-medium bg-neutral-100 hover:bg-neutral-200 rounded-lg">Marco</button>
-              <button type="button" onclick="quickFillLogin('giulia.b@email.it', 'Password123!')" class="px-2.5 py-1 text-[11px] font-medium bg-neutral-100 hover:bg-neutral-200 rounded-lg">Giulia (Bici)</button>
-              <button type="button" onclick="quickFillLogin('operatore@comune.bari.it', 'AdminCityFix2026!')" class="px-2.5 py-1 text-[11px] font-medium bg-neutral-100 hover:bg-neutral-200 rounded-lg">Comune</button>
+              <button type="button" onclick="quickFillLogin('marco.rossi@email.it', 'Password123!')" class="px-2 py-1 text-[10px] font-medium bg-neutral-100 hover:bg-neutral-200 rounded-lg">Marco</button>
+              <button type="button" onclick="quickFillLogin('giulia.b@email.it', 'Password123!')" class="px-2 py-1 text-[10px] font-medium bg-neutral-100 hover:bg-neutral-200 rounded-lg">Giulia</button>
+              <button type="button" onclick="quickFillLogin('operatore@comune.bari.it', 'AdminCityFix2026!')" class="px-2 py-1 text-[10px] font-medium bg-neutral-100 hover:bg-neutral-200 rounded-lg">Comune</button>
             </div>
           </div>
         </form>
 
-        <!-- REGISTER -->
-        <form id="formRegister" onsubmit="handleRegister(event)" class="space-y-2.5 hidden">
+        <form id="formRegister" onsubmit="handleRegister(event)" class="space-y-2 hidden">
           <div class="grid grid-cols-2 gap-2">
             <div>
-              <label class="block text-[11px] font-bold text-neutral-700 mb-0.5">Nome</label>
-              <input type="text" id="regNome" required placeholder="Marco" class="w-full px-2.5 py-1.5 text-xs rounded-lg border border-neutral-300 focus:outline-none">
+              <label class="block text-[10px] font-bold text-neutral-700 mb-0.5">Nome</label>
+              <input type="text" id="regNome" required placeholder="Marco" class="w-full px-2 py-1.5 text-xs rounded-lg border border-neutral-300">
             </div>
             <div>
-              <label class="block text-[11px] font-bold text-neutral-700 mb-0.5">Cognome</label>
-              <input type="text" id="regCognome" required placeholder="Rossi" class="w-full px-2.5 py-1.5 text-xs rounded-lg border border-neutral-300 focus:outline-none">
+              <label class="block text-[10px] font-bold text-neutral-700 mb-0.5">Cognome</label>
+              <input type="text" id="regCognome" required placeholder="Rossi" class="w-full px-2 py-1.5 text-xs rounded-lg border border-neutral-300">
             </div>
           </div>
           <div>
-            <label class="block text-[11px] font-bold text-neutral-700 mb-0.5">Data di Nascita</label>
-            <input type="date" id="regDataNascita" required class="w-full px-2.5 py-1.5 text-xs rounded-lg border border-neutral-300 focus:outline-none">
+            <label class="block text-[10px] font-bold text-neutral-700 mb-0.5">Data di Nascita</label>
+            <input type="date" id="regDataNascita" required class="w-full px-2 py-1.5 text-xs rounded-lg border border-neutral-300">
           </div>
           <div>
-            <label class="block text-[11px] font-bold text-neutral-700 mb-0.5">Email</label>
-            <input type="email" id="regEmail" required placeholder="marco@email.it" class="w-full px-2.5 py-1.5 text-xs rounded-lg border border-neutral-300 focus:outline-none">
+            <label class="block text-[10px] font-bold text-neutral-700 mb-0.5">Email</label>
+            <input type="email" id="regEmail" required placeholder="marco@email.it" class="w-full px-2 py-1.5 text-xs rounded-lg border border-neutral-300">
           </div>
           <div>
-            <label class="block text-[11px] font-bold text-neutral-700 mb-0.5">Numero di Telefono</label>
-            <input type="tel" id="regTelefono" required placeholder="+39 333 1234567" class="w-full px-2.5 py-1.5 text-xs rounded-lg border border-neutral-300 focus:outline-none">
+            <label class="block text-[10px] font-bold text-neutral-700 mb-0.5">Numero di Telefono</label>
+            <input type="tel" id="regTelefono" required placeholder="+39 333 1234567" class="w-full px-2 py-1.5 text-xs rounded-lg border border-neutral-300">
           </div>
           <div>
-            <label class="block text-[11px] font-bold text-neutral-700 mb-0.5">Password</label>
-            <input type="password" id="regPassword" required placeholder="Minimo 8 caratteri" class="w-full px-2.5 py-1.5 text-xs rounded-lg border border-neutral-300 focus:outline-none">
+            <label class="block text-[10px] font-bold text-neutral-700 mb-0.5">Password</label>
+            <input type="password" id="regPassword" required placeholder="Minimo 8 caratteri" class="w-full px-2 py-1.5 text-xs rounded-lg border border-neutral-300">
           </div>
-          <button type="submit" class="w-full bg-waze-blue hover:bg-waze-blueHover text-white font-bold py-2.5 rounded-xl text-xs transition mt-1">
+          <button type="submit" class="w-full bg-waze-blue hover:bg-waze-blueHover text-white font-bold py-2 rounded-xl text-xs transition mt-1">
             Crea Account
           </button>
         </form>
 
-        <!-- FORGOT PASSWORD -->
-        <div id="formForgot" class="space-y-3 hidden">
+        <div id="formForgot" class="space-y-2.5 hidden">
           <div id="forgotStep1">
-            <p class="text-xs text-neutral-500 mb-2">Inserisci email o telefono per ricevere il codice temporaneo.</p>
-            <input type="text" id="forgotIdentifier" placeholder="Email o Telefono" class="w-full px-3 py-2 text-xs rounded-xl border border-neutral-300 mb-2">
-            <button type="button" onclick="requestResetCode()" class="w-full bg-waze-blue text-white font-bold py-2 rounded-xl text-xs">Invia Codice OTP</button>
+            <p class="text-xs text-neutral-500 mb-1.5">Inserisci email o telefono per ricevere il codice.</p>
+            <input type="text" id="forgotIdentifier" placeholder="Email o Telefono" class="w-full px-3 py-1.5 text-xs rounded-xl border border-neutral-300 mb-2">
+            <button type="button" onclick="requestResetCode()" class="w-full bg-waze-blue text-white font-bold py-1.5 rounded-xl text-xs">Invia Codice OTP</button>
           </div>
           <div id="forgotStep2" class="hidden space-y-2">
-            <div class="p-2 bg-neutral-100 rounded-lg text-xs text-neutral-700 font-mono">
+            <div class="p-1.5 bg-neutral-100 rounded-lg text-xs text-neutral-700 font-mono">
               Codice Demo: <span id="demoOtpDisplay" class="font-bold"></span>
             </div>
-            <input type="text" id="forgotCode" placeholder="Codice 6 cifre" maxlength="6" class="w-full px-3 py-2 text-xs rounded-xl border border-neutral-300 font-mono text-center">
-            <input type="password" id="forgotNewPassword" placeholder="Nuova password" class="w-full px-3 py-2 text-xs rounded-xl border border-neutral-300">
-            <button type="button" onclick="submitResetPassword()" class="w-full bg-waze-blue text-white font-bold py-2 rounded-xl text-xs">Reimposta Password</button>
+            <input type="text" id="forgotCode" placeholder="Codice 6 cifre" maxlength="6" class="w-full px-3 py-1.5 text-xs rounded-xl border border-neutral-300 font-mono text-center">
+            <input type="password" id="forgotNewPassword" placeholder="Nuova password" class="w-full px-3 py-1.5 text-xs rounded-xl border border-neutral-300">
+            <button type="button" onclick="submitResetPassword()" class="w-full bg-waze-blue text-white font-bold py-1.5 rounded-xl text-xs">Reimposta Password</button>
           </div>
         </div>
 
@@ -567,28 +618,26 @@
   </div>
 
   <!-- REPORT MODAL -->
-  <div id="reportModal" class="hidden fixed inset-0 bg-neutral-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-    <div class="bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden border border-neutral-200 max-h-[90vh] flex flex-col">
+  <div id="reportModal" class="hidden fixed inset-0 bg-neutral-900/50 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-4">
+    <div class="bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden border border-neutral-200 max-h-[92vh] flex flex-col">
       
-      <div class="p-4 bg-red-600 text-white flex items-center justify-between">
+      <div class="p-3.5 bg-red-600 text-white flex items-center justify-between">
         <div class="flex items-center gap-2">
           <i data-lucide="alert-octagon" class="w-5 h-5"></i>
           <div>
-            <h3 class="font-black text-sm">Segnala Pericolo Imminente</h3>
-            <p class="text-[10px] text-red-100">Validazione e classificazione istantanea tramite Bot AI</p>
+            <h3 class="font-black text-xs sm:text-sm">Segnala Pericolo Imminente</h3>
+            <p class="text-[10px] text-red-100">Analisi e classificazione immediata Bot AI</p>
           </div>
         </div>
-        <button onclick="closeReportModal()" class="text-white/80 hover:text-white">
-          <i data-lucide="x" class="w-5 h-5"></i>
+        <button onclick="closeReportModal()" class="text-white/80 hover:text-white p-1">
+          <i data-lucide="x" class="w-4 h-4"></i>
         </button>
       </div>
 
-      <div class="p-5 overflow-y-auto space-y-4">
-        
-        <!-- Category Selector -->
+      <div class="p-4 overflow-y-auto clean-scroll space-y-3.5 text-xs">
         <div>
           <label class="block text-xs font-bold text-neutral-800 mb-1.5">1. Tipo di Pericolo:</label>
-          <div class="grid grid-cols-3 gap-2">
+          <div class="grid grid-cols-3 gap-1.5">
             <button type="button" onclick="selectCategory('incidente', this)" class="cat-btn active p-2 border-2 border-red-600 bg-red-50 text-red-700 rounded-xl text-center text-xs font-bold">Incidente</button>
             <button type="button" onclick="selectCategory('strada allagata', this)" class="cat-btn p-2 border border-neutral-200 bg-white text-neutral-600 rounded-xl text-center text-xs">Allagamento</button>
             <button type="button" onclick="selectCategory('palo pericolante', this)" class="cat-btn p-2 border border-neutral-200 bg-white text-neutral-600 rounded-xl text-center text-xs">Palo / Cavo</button>
@@ -598,49 +647,43 @@
           </div>
         </div>
 
-        <!-- Description -->
         <div>
           <label class="block text-xs font-bold text-neutral-800 mb-1">2. Descrizione rapida:</label>
-          <textarea id="reportDesc" rows="2" placeholder="Cosa è successo?" class="w-full px-3 py-2 text-xs rounded-xl border border-neutral-300 focus:outline-none focus:border-red-600"></textarea>
+          <textarea id="reportDesc" rows="2" placeholder="Cosa è successo?" class="w-full px-3 py-1.5 text-xs rounded-xl border border-neutral-300 focus:outline-none focus:border-red-600"></textarea>
         </div>
 
-        <!-- Location -->
         <div>
           <label class="block text-xs font-bold text-neutral-800 mb-1">3. Posizione:</label>
-          <input type="text" id="reportIndirizzo" value="Galatina (Puglia) · SP362 / Noha" class="w-full px-3 py-2 text-xs rounded-xl border border-neutral-300 focus:outline-none focus:border-red-600">
+          <input type="text" id="reportIndirizzo" value="Galatina (Puglia) · SP362 / Noha" class="w-full px-3 py-1.5 text-xs rounded-xl border border-neutral-300 focus:outline-none focus:border-red-600">
         </div>
 
-        <!-- Photo Upload & Presets -->
         <div>
           <label class="block text-xs font-bold text-neutral-800 mb-1">4. Foto del Pericolo (Obbligatoria per l'AI):</label>
-          
-          <div class="border-2 border-dashed border-neutral-300 rounded-2xl p-3 text-center">
+          <div class="border-2 border-dashed border-neutral-300 rounded-2xl p-2.5 text-center">
             <div id="photoPreviewContainer" class="hidden mb-2 relative">
-              <img id="photoPreviewImg" src="" class="h-28 mx-auto rounded-xl object-cover">
+              <img id="photoPreviewImg" src="" class="h-24 mx-auto rounded-xl object-cover">
               <button onclick="clearPhoto()" class="absolute top-1 right-1 bg-neutral-900 text-white rounded-full p-1"><i data-lucide="x" class="w-3 h-3"></i></button>
             </div>
             
             <div id="photoUploadControls">
-              <input type="file" id="photoFileInput" accept="image/*" onchange="handleFileSelect(event)" class="text-xs text-neutral-500 file:mr-2 file:py-1 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-neutral-800 file:text-white cursor-pointer">
+              <input type="file" id="photoFileInput" accept="image/*" onchange="handleFileSelect(event)" class="text-xs text-neutral-500 file:mr-2 file:py-1 file:px-2.5 file:rounded-xl file:border-0 file:text-[11px] file:font-bold file:bg-neutral-800 file:text-white cursor-pointer">
             </div>
 
-            <div class="mt-2.5 pt-2 border-t border-neutral-100 flex flex-wrap gap-1 justify-center">
-              <button type="button" onclick="loadDemoPhoto('red')" class="px-2 py-0.5 text-[10px] bg-red-50 text-red-700 border border-red-200 rounded-lg font-medium">📷 Foto Incidente (Rosso)</button>
-              <button type="button" onclick="loadDemoPhoto('orange')" class="px-2 py-0.5 text-[10px] bg-amber-50 text-amber-700 border border-amber-200 rounded-lg font-medium">📷 Foto Allagamento (Arancio)</button>
-              <button type="button" onclick="loadDemoPhoto('yellow')" class="px-2 py-0.5 text-[10px] bg-yellow-50 text-yellow-700 border border-yellow-200 rounded-lg font-medium">📷 Foto Buca (Giallo)</button>
-              <button type="button" onclick="loadDemoPhoto('meme')" class="px-2 py-0.5 text-[10px] bg-purple-50 text-purple-700 border border-purple-200 rounded-lg font-medium">⚠️ Foto Meme (Test Strike)</button>
+            <div class="mt-2 pt-2 border-t border-neutral-100 flex flex-wrap gap-1 justify-center">
+              <button type="button" onclick="loadDemoPhoto('red')" class="px-2 py-0.5 text-[10px] bg-red-50 text-red-700 border border-red-200 rounded-lg font-medium">📷 Incidente (Rosso)</button>
+              <button type="button" onclick="loadDemoPhoto('orange')" class="px-2 py-0.5 text-[10px] bg-amber-50 text-amber-700 border border-amber-200 rounded-lg font-medium">📷 Allagamento (Arancio)</button>
+              <button type="button" onclick="loadDemoPhoto('yellow')" class="px-2 py-0.5 text-[10px] bg-yellow-50 text-yellow-700 border border-yellow-200 rounded-lg font-medium">📷 Buca (Giallo)</button>
+              <button type="button" onclick="loadDemoPhoto('meme')" class="px-2 py-0.5 text-[10px] bg-purple-50 text-purple-700 border border-purple-200 rounded-lg font-medium">⚠️ Meme (Test Strike)</button>
             </div>
           </div>
         </div>
 
-        <!-- AI Evaluation Result Box -->
-        <div id="aiEvaluationBox" class="hidden p-3 rounded-xl border text-xs"></div>
-
+        <div id="aiEvaluationBox" class="hidden p-2.5 rounded-xl border text-xs"></div>
       </div>
 
       <div class="p-3 bg-neutral-50 border-t border-neutral-100 flex justify-end gap-2">
-        <button onclick="closeReportModal()" class="px-3 py-1.5 text-xs font-medium text-neutral-600 hover:text-neutral-900">Annulla</button>
-        <button id="btnSubmitReport" onclick="submitReport()" class="bg-red-600 hover:bg-red-700 text-white font-bold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 transition shadow-md">
+        <button onclick="closeReportModal()" class="px-3 py-1 text-xs font-medium text-neutral-600 hover:text-neutral-900">Annulla</button>
+        <button id="btnSubmitReport" onclick="submitReport()" class="bg-red-600 hover:bg-red-700 text-white font-bold px-4 py-1.5 rounded-xl text-xs flex items-center gap-1.5 transition shadow-sm">
           <i data-lucide="send" class="w-3.5 h-3.5"></i>
           <span>Invia Segnalazione</span>
         </button>
@@ -649,19 +692,19 @@
     </div>
   </div>
 
-  <!-- TOAST PROXIMITY ALERT (CASO GIULIA A 200M) -->
-  <div id="alertToast" class="fixed top-20 right-6 z-[2000] hidden max-w-sm w-full bg-white rounded-2xl shadow-2xl border-2 border-red-600 p-4 animate-in slide-in-from-top-4 duration-200">
-    <div class="flex items-start gap-3">
-      <div class="w-10 h-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center shrink-0">
+  <!-- TOAST PROXIMITY ALERT -->
+  <div id="alertToast" class="fixed top-16 md:top-20 right-4 md:right-6 z-[2000] hidden max-w-sm w-[calc(100vw-2rem)] bg-white rounded-2xl shadow-2xl border-2 border-red-600 p-3.5 animate-in slide-in-from-top-4 duration-200">
+    <div class="flex items-start gap-2.5">
+      <div class="w-9 h-9 rounded-xl bg-red-100 text-red-600 flex items-center justify-center shrink-0">
         <i data-lucide="bell" class="w-5 h-5 animate-bounce"></i>
       </div>
       <div class="flex-1">
         <div class="flex items-center justify-between">
           <span class="text-[10px] uppercase font-black text-red-600">Allerta Prossimità (200m)</span>
-          <button onclick="dismissToast()" class="text-neutral-400 hover:text-neutral-600"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
+          <button onclick="dismissToast()" class="text-neutral-400 hover:text-neutral-600 p-0.5"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
         </div>
         <h4 id="toastTitle" class="text-xs font-bold text-neutral-900 mt-0.5">Attenzione Giulia!</h4>
-        <p id="toastMessage" class="text-xs text-neutral-600 mt-1 leading-relaxed"></p>
+        <p id="toastMessage" class="text-[11px] text-neutral-600 mt-0.5 leading-relaxed"></p>
       </div>
     </div>
   </div>

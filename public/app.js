@@ -1,7 +1,7 @@
 /**
  * CityFix · Safe Mobility Web Application
- * Live Waze Map Interface & UX Engine
- * 4 Categories: Mappa, Notifiche Pericoli, Istruzioni, Legenda
+ * OpenStreetMap Engine (Zero API Key) & Responsive Mobile/Desktop UX
+ * Categories: Mappa, Notifiche Pericoli, Istruzioni, Legenda
  */
 
 const state = {
@@ -14,7 +14,7 @@ const state = {
   proximityCircle: null,
   citizenMarker: null,
   safeRoutePolyline: null,
-  isCardCollapsed: false,
+  isDesktopCardCollapsed: false,
   // Centered in Galatina (Puglia / Salento) as shown in user screenshots
   userLocation: { lat: 40.1740, lng: 18.1710, name: "Galatina Centro (Puglia)" },
   selectedRadius: 200, // 200m as in PDF Slide 9: 'Giulia torna in bici a 200m'
@@ -33,7 +33,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await checkAuthSession();
   await fetchReports();
 
-  // Close dropdowns when clicking outside
+  // Close desktop dropdowns when clicking outside
   document.addEventListener('click', (e) => {
     const btnApp = document.getElementById('btnAppMenu');
     const menuApp = document.getElementById('appDropdownMenu');
@@ -48,10 +48,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  // Re-check map sizing on window resize / orientation change
+  window.addEventListener('resize', () => {
+    if (state.map) state.map.invalidateSize();
+  });
+
   setInterval(fetchReports, 10000);
 });
 
-// ------------------- LEAFLET MAP ENGINE ------------------- //
+// ------------------- OPENSTREETMAP (ZERO API KEY) ------------------- //
 
 function initMap() {
   state.map = L.map('map', {
@@ -59,18 +64,17 @@ function initMap() {
     attributionControl: false
   }).setView([state.userLocation.lat, state.userLocation.lng], 14);
 
-  // CartoDB Voyager tiles (clean, high-readability vector map)
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+  // 100% Free OpenStreetMap tile server - ZERO API KEY REQUIRED
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
-    subdomains: 'abcd'
+    subdomains: ['a', 'b', 'c']
   }).addTo(state.map);
 
   updateUserLocationMarker();
 
-  // Ensure map tiles calculate their size properly
   setTimeout(() => {
     state.map.invalidateSize();
-  }, 250);
+  }, 300);
 
   // Click on map to pick coordinates
   state.map.on('click', (e) => {
@@ -90,7 +94,7 @@ function updateUserLocationMarker() {
     state.map.removeLayer(state.proximityCircle);
   }
 
-  // Draw proximity radar circle
+  // Draw 200m proximity radar circle
   state.proximityCircle = L.circle([state.userLocation.lat, state.userLocation.lng], {
     color: '#0099FF',
     fillColor: '#0099FF',
@@ -104,16 +108,16 @@ function updateUserLocationMarker() {
     className: 'custom-citizen-icon',
     html: `
       <div class="relative flex items-center justify-center">
-        <div class="w-9 h-9 rounded-full bg-[#0099FF] border-2 border-white shadow-xl flex items-center justify-center text-white text-sm font-bold animate-pulse">
+        <div class="w-8 h-8 rounded-full bg-[#0099FF] border-2 border-white shadow-xl flex items-center justify-center text-white text-xs font-bold animate-pulse">
           🚲
         </div>
-        <div class="absolute -bottom-5 whitespace-nowrap bg-neutral-900 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow">
-          ${state.currentUser ? state.currentUser.nome : "Giulia (Bici)"}
+        <div class="absolute -bottom-4 whitespace-nowrap bg-neutral-900 text-white text-[8px] font-bold px-1 rounded shadow">
+          ${state.currentUser ? state.currentUser.nome : "Giulia"}
         </div>
       </div>
     `,
-    iconSize: [36, 36],
-    iconAnchor: [18, 18]
+    iconSize: [32, 32],
+    iconAnchor: [16, 16]
   });
 
   if (state.citizenMarker) {
@@ -124,7 +128,7 @@ function updateUserLocationMarker() {
 }
 
 function centerUserLocation() {
-  state.map.flyTo([state.userLocation.lat, state.userLocation.lng], 15, { duration: 1 });
+  state.map.flyTo([state.userLocation.lat, state.userLocation.lng], 15, { duration: 0.8 });
 }
 
 function setRadius(meters) {
@@ -159,7 +163,6 @@ function calculateSafeRoute() {
     state.map.removeLayer(state.safeRoutePolyline);
   }
 
-  // Draw clean blue route that detours around the danger pin
   const lat = state.userLocation.lat;
   const lng = state.userLocation.lng;
   const routePoints = [
@@ -176,21 +179,129 @@ function calculateSafeRoute() {
     lineCap: 'round'
   }).addTo(state.map);
 
-  state.map.fitBounds(state.safeRoutePolyline.getBounds(), { padding: [50, 50] });
+  state.map.fitBounds(state.safeRoutePolyline.getBounds(), { padding: [40, 40] });
 
-  alert("Percorso Sicuro Calcolato: Deviazione attiva per evitare l'incidente all'incrocio!");
+  alert("Percorso Sicuro Calcolato: Deviazione attiva per evitare l'incidente!");
 }
 
-// ------------------- CARD COLLAPSE & TABS SWITCHER ------------------- //
+// ------------------- MOBILE NAVIGATION & BOTTOM SHEET ------------------- //
 
-function toggleCardCollapse() {
-  const card = document.getElementById('floatingCard');
-  const pill = document.getElementById('minimizedPill');
-  const icon = document.getElementById('collapseIcon');
+function mobileSwitchTab(tab) {
+  state.activeTab = tab;
 
-  state.isCardCollapsed = !state.isCardCollapsed;
+  const tabs = ['mappa', 'notifiche-pericoli', 'istruzioni', 'legenda'];
+  const mNavMap = {
+    'mappa': document.getElementById('mNavMappa'),
+    'notifiche-pericoli': document.getElementById('mNavPericoli'),
+    'istruzioni': document.getElementById('mNavIstruzioni'),
+    'legenda': document.getElementById('mNavLegenda')
+  };
 
-  if (state.isCardCollapsed) {
+  tabs.forEach(t => {
+    const btn = mNavMap[t];
+    if (btn) {
+      btn.className = "flex flex-col items-center py-1 px-3 text-neutral-400 font-medium transition relative";
+    }
+  });
+
+  const activeBtn = mNavMap[tab];
+  if (activeBtn) {
+    activeBtn.className = "flex flex-col items-center py-1 px-3 text-neutral-900 font-bold transition relative";
+  }
+
+  const sheet = document.getElementById('mobileBottomSheet');
+  const sheetTitle = document.getElementById('mobileSheetTitle');
+  const sheetContent = document.getElementById('mobileSheetContent');
+
+  if (tab === 'mappa') {
+    closeMobileBottomSheet();
+    centerUserLocation();
+  } else if (tab === 'notifiche-pericoli') {
+    sheetTitle.textContent = "Notifiche Pericoli";
+    sheetContent.innerHTML = generateHazardsListHtml();
+    sheet.classList.remove('hidden');
+  } else if (tab === 'istruzioni') {
+    sheetTitle.textContent = "Istruzioni di guida e sicurezza";
+    sheetContent.innerHTML = `
+      <div class="space-y-2.5 text-xs text-neutral-600">
+        <div class="p-3 bg-neutral-50 rounded-xl border border-neutral-200">
+          <h4 class="font-bold text-neutral-900 mb-0.5">01. Segnala in 3 secondi</h4>
+          <p class="text-[11px]">Tocca il tasto rosso della matita. Carica una foto reale e invia: il Bot AI esegue la convalida istantanea.</p>
+        </div>
+        <div class="p-3 bg-neutral-50 rounded-xl border border-neutral-200">
+          <h4 class="font-bold text-neutral-900 mb-0.5">02. Allerte di prossimità a 200m</h4>
+          <p class="text-[11px]">Avviso acustico e visivo per chi è in bici o a piedi in avvicinamento entro 200 metri.</p>
+        </div>
+        <div class="p-3 bg-neutral-50 rounded-xl border border-neutral-200">
+          <h4 class="font-bold text-neutral-900 mb-0.5">03. Rimozione collaborativa</h4>
+          <p class="text-[11px]">Due voti su «Non c'è più» rimuovono subito il pericolo dalla mappa.</p>
+        </div>
+        <div class="p-3 bg-red-50 rounded-xl border border-red-200 text-red-800">
+          <h4 class="font-bold text-red-900 mb-0.5">Emergenze gravi: chiama il 112</h4>
+          <p class="text-[11px]">Contatta sempre il 112 per pericoli critici o feriti.</p>
+        </div>
+      </div>
+    `;
+    sheet.classList.remove('hidden');
+  } else if (tab === 'legenda') {
+    sheetTitle.textContent = "Legenda Codici & Ban";
+    sheetContent.innerHTML = `
+      <div class="space-y-2.5 text-xs">
+        <div class="p-2.5 rounded-xl border border-red-200 bg-red-50/80">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="w-3 h-3 rounded-full bg-severity-red"></span>
+            <span class="font-bold text-red-900 text-xs">CODICE ROSSO (Grave)</span>
+          </div>
+          <p class="text-[11px] text-red-700 leading-tight">Pericolo immediato per la vita. Notifica prioritari e 112.</p>
+        </div>
+        <div class="p-2.5 rounded-xl border border-amber-200 bg-amber-50/80">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="w-3 h-3 rounded-full bg-severity-orange"></span>
+            <span class="font-bold text-amber-900 text-xs">CODICE ARANCIONE (Medio)</span>
+          </div>
+          <p class="text-[11px] text-amber-800 leading-tight">Rischio moderato (allagamenti, ostacoli carreggiata). Richiede cautela.</p>
+        </div>
+        <div class="p-2.5 rounded-xl border border-yellow-200 bg-yellow-50/80">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="w-3 h-3 rounded-full bg-severity-yellow"></span>
+            <span class="font-bold text-yellow-900 text-xs">CODICE GIALLO (Basso)</span>
+          </div>
+          <p class="text-[11px] text-yellow-800 leading-tight">Disagio lieve (buche, rami caduti).</p>
+        </div>
+        <div class="p-2.5 rounded-xl border border-neutral-200 bg-neutral-50 text-neutral-700">
+          <span class="font-bold text-neutral-900 block mb-0.5 text-xs">Regola Anti-Abuso Bot AI:</span>
+          <p class="text-[11px] leading-tight">3 foto false = Ban 24h automatico.</p>
+        </div>
+      </div>
+    `;
+    sheet.classList.remove('hidden');
+  }
+
+  if (window.lucide) lucide.createIcons();
+}
+
+function closeMobileBottomSheet() {
+  const sheet = document.getElementById('mobileBottomSheet');
+  if (sheet) sheet.classList.add('hidden');
+}
+
+function openMobileRoutePlanner() {
+  document.getElementById('mobileRouteModal').classList.remove('hidden');
+}
+
+function closeMobileRoutePlanner() {
+  document.getElementById('mobileRouteModal').classList.add('hidden');
+}
+
+// ------------------- DESKTOP CARD TABS ------------------- //
+
+function toggleDesktopCardCollapse() {
+  const card = document.getElementById('desktopFloatingCard');
+  const pill = document.getElementById('desktopMinimizedPill');
+
+  state.isDesktopCardCollapsed = !state.isDesktopCardCollapsed;
+
+  if (state.isDesktopCardCollapsed) {
     card.classList.add('hidden');
     pill.classList.remove('hidden');
   } else {
@@ -203,9 +314,8 @@ function toggleCardCollapse() {
 function switchTab(tab) {
   state.activeTab = tab;
 
-  // If card was collapsed, expand it
-  if (state.isCardCollapsed) {
-    toggleCardCollapse();
+  if (state.isDesktopCardCollapsed) {
+    toggleDesktopCardCollapse();
   }
 
   const tabs = ['mappa', 'notifiche-pericoli', 'istruzioni', 'legenda'];
@@ -216,17 +326,17 @@ function switchTab(tab) {
     'legenda': document.getElementById('tabBtnLegenda')
   };
   const contentMap = {
-    'mappa': document.getElementById('contentMappa'),
-    'notifiche-pericoli': document.getElementById('contentPericoli'),
-    'istruzioni': document.getElementById('contentIstruzioni'),
-    'legenda': document.getElementById('contentLegenda')
+    'mappa': document.getElementById('desktopContentMappa'),
+    'notifiche-pericoli': document.getElementById('desktopContentPericoli'),
+    'istruzioni': document.getElementById('desktopContentIstruzioni'),
+    'legenda': document.getElementById('desktopContentLegenda')
   };
 
   tabs.forEach(t => {
     const btn = tabBtnMap[t];
     const content = contentMap[t];
     if (btn) {
-      btn.className = "flex-1 py-1.5 px-2 rounded-lg text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 transition text-center flex items-center justify-center gap-1.5 relative";
+      btn.className = "flex-1 py-1.5 px-2 rounded-lg text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 transition text-center flex items-center justify-center gap-1 text-[11px] font-bold";
     }
     if (content) {
       content.classList.add('hidden');
@@ -237,7 +347,7 @@ function switchTab(tab) {
   const activeContent = contentMap[tab];
 
   if (activeBtn) {
-    activeBtn.className = "flex-1 py-1.5 px-2 rounded-lg bg-neutral-900 text-white shadow-xs transition text-center flex items-center justify-center gap-1.5 relative font-bold";
+    activeBtn.className = "flex-1 py-1.5 px-2 rounded-lg bg-neutral-900 text-white shadow-xs transition text-center flex items-center justify-center gap-1 text-[11px] font-bold";
   }
   if (activeContent) {
     activeContent.classList.remove('hidden');
@@ -296,33 +406,39 @@ async function checkAuthSession() {
 }
 
 function renderUserHeader() {
-  const container = document.getElementById('userHeaderArea');
-  if (!container) return;
+  const deskContainer = document.getElementById('desktopUserHeaderArea');
+  const mobContainer = document.getElementById('mobileUserHeaderArea');
+
+  const htmlNotLogged = `
+    <button onclick="showAuthModal()" class="bg-[#0099FF] hover:bg-[#0088EE] text-white text-[11px] font-bold px-3 py-1.5 rounded-full transition shadow-xs">
+      Accedi
+    </button>
+  `;
 
   if (!state.currentUser) {
-    container.innerHTML = `
-      <button onclick="showAuthModal()" class="bg-[#0099FF] hover:bg-[#0088EE] text-white text-xs font-bold px-4 py-2 rounded-full transition shadow-md">
-        Accedi
-      </button>
-    `;
+    if (deskContainer) deskContainer.innerHTML = htmlNotLogged;
+    if (mobContainer) mobContainer.innerHTML = htmlNotLogged;
     return;
   }
 
   const u = state.currentUser;
   const strikes = u.false_reports_count || 0;
 
-  container.innerHTML = `
-    <div class="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-full border border-neutral-200/80 shadow-md text-xs">
-      <div class="w-6 h-6 rounded-full bg-[#0099FF] text-white flex items-center justify-center font-bold text-[11px]">
+  const htmlLogged = `
+    <div class="flex items-center gap-1.5 bg-neutral-100 px-2.5 py-1 rounded-full text-xs font-bold text-neutral-800">
+      <div class="w-5 h-5 rounded-full bg-[#0099FF] text-white flex items-center justify-center text-[10px]">
         ${u.nome.charAt(0)}
       </div>
-      <span class="font-bold text-neutral-800">${u.nome}</span>
-      <span class="text-[10px] text-neutral-400 font-semibold">(${strikes}/3)</span>
-      <button onclick="logout()" class="text-neutral-400 hover:text-neutral-700 ml-1 p-0.5" title="Esci">
-        <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
+      <span class="text-[11px]">${u.nome}</span>
+      <span class="text-[9px] text-neutral-400 font-semibold">(${strikes}/3)</span>
+      <button onclick="logout()" class="text-neutral-400 hover:text-neutral-700 ml-0.5 p-0.5" title="Esci">
+        <i data-lucide="log-out" class="w-3 h-3"></i>
       </button>
     </div>
   `;
+
+  if (deskContainer) deskContainer.innerHTML = htmlLogged;
+  if (mobContainer) mobContainer.innerHTML = htmlLogged;
   if (window.lucide) lucide.createIcons();
 }
 
@@ -366,7 +482,7 @@ async function resetBanDemo() {
       headers: { 'Authorization': `Bearer ${state.token}` }
     });
     if (res.ok) {
-      alert("Ban azzerato con successo! Ora puoi inviare segnalazioni.");
+      alert("Ban azzerato con successo! Ora puoi inviare nuove segnalazioni.");
       await checkAuthSession();
     }
   } catch (err) {}
@@ -391,7 +507,7 @@ function setAuthTab(tab) {
 
   [formLogin, formRegister, formForgot].forEach(f => f.classList.add('hidden'));
   [tabLogin, tabRegister, tabForgot].forEach(t => {
-    t.className = "flex-1 py-3 text-center text-neutral-400 hover:text-neutral-700 transition";
+    t.className = "flex-1 py-2.5 text-center text-neutral-400 hover:text-neutral-700 transition";
   });
 
   document.getElementById('authError').classList.add('hidden');
@@ -399,13 +515,13 @@ function setAuthTab(tab) {
 
   if (tab === 'login') {
     formLogin.classList.remove('hidden');
-    tabLogin.className = "flex-1 py-3 text-center text-neutral-900 border-b-2 border-neutral-900 font-bold transition";
+    tabLogin.className = "flex-1 py-2.5 text-center text-neutral-900 border-b-2 border-neutral-900 font-bold transition";
   } else if (tab === 'register') {
     formRegister.classList.remove('hidden');
-    tabRegister.className = "flex-1 py-3 text-center text-neutral-900 border-b-2 border-neutral-900 font-bold transition";
+    tabRegister.className = "flex-1 py-2.5 text-center text-neutral-900 border-b-2 border-neutral-900 font-bold transition";
   } else if (tab === 'forgot') {
     formForgot.classList.remove('hidden');
-    tabForgot.className = "flex-1 py-3 text-center text-neutral-900 border-b-2 border-neutral-900 font-bold transition";
+    tabForgot.className = "flex-1 py-2.5 text-center text-neutral-900 border-b-2 border-neutral-900 font-bold transition";
   }
   if (window.lucide) lucide.createIcons();
 }
@@ -510,7 +626,7 @@ async function requestResetCode() {
       document.getElementById('forgotCode').value = data.demo_code;
       showAuthSuccess(data.message);
     } else {
-      showAuthError(data.error || "Errore nella richiesta del codice.");
+      showAuthError(data.error || "Errore nella richiesta.");
     }
   } catch (err) {
     showAuthError("Errore di connessione.");
@@ -530,13 +646,13 @@ async function submitResetPassword() {
     });
     const data = await res.json();
     if (res.ok) {
-      showAuthSuccess("Password reimpostata con successo! Ora accedi.");
+      showAuthSuccess("Password reimpostata! Ora accedi.");
       setTimeout(() => {
         setAuthTab('login');
         document.getElementById('loginIdentifier').value = identifier;
       }, 1500);
     } else {
-      showAuthError(data.error || "Errore durante il reset.");
+      showAuthError(data.error || "Errore reset.");
     }
   } catch (err) {
     showAuthError("Errore di connessione.");
@@ -550,7 +666,7 @@ function logout() {
   renderUserHeader();
 }
 
-// ------------------- REPORTS & NOTIFICHE PERICOLI LIST ------------------- //
+// ------------------- REPORTS ENGINE & NOTIFICHE LIST ------------------- //
 
 async function fetchReports() {
   try {
@@ -572,6 +688,8 @@ function renderMapMarkers() {
 
   const badgeCount = document.getElementById('badgePericoliCount');
   if (badgeCount) badgeCount.textContent = state.reports.length;
+  const mBadge = document.getElementById('mBadgePericoli');
+  if (mBadge) mBadge.textContent = state.reports.length;
   const labelCount = document.getElementById('pericoliCountLabel');
   if (labelCount) labelCount.textContent = `${state.reports.length} segnalazioni`;
 
@@ -589,13 +707,13 @@ function renderMapMarkers() {
       className: 'custom-hazard-pin',
       html: `
         <div class="relative flex items-center justify-center">
-          <div class="w-9 h-9 rounded-full flex items-center justify-center text-white shadow-xl ${pulseClass}" style="background-color: ${pinColor}">
+          <div class="w-8 h-8 rounded-full flex items-center justify-center text-white shadow-xl ${pulseClass}" style="background-color: ${pinColor}">
             ${getCategoryIcon(r.categoria)}
           </div>
         </div>
       `,
-      iconSize: [36, 36],
-      iconAnchor: [18, 18]
+      iconSize: [32, 32],
+      iconAnchor: [16, 16]
     });
 
     const marker = L.marker([r.lat, r.lng], { icon }).addTo(state.map);
@@ -611,9 +729,9 @@ function renderMapMarkers() {
         <h4 class="font-extrabold text-xs text-neutral-900 mb-0.5 uppercase">${r.categoria}</h4>
         <p class="text-neutral-600 mb-2 leading-tight text-[11px]">${r.descrizione}</p>
         
-        ${r.foto_url ? `<img src="${r.foto_url}" class="w-full h-24 object-cover rounded-xl mb-2">` : ''}
+        ${r.foto_url ? `<img src="${r.foto_url}" class="w-full h-20 object-cover rounded-xl mb-2">` : ''}
 
-        <div class="p-1.5 rounded-lg bg-neutral-100 text-[10px] text-neutral-600 mb-2">
+        <div class="p-1 rounded-lg bg-neutral-100 text-[10px] text-neutral-600 mb-2">
           <b>Bot AI:</b> ${r.ai_reason}
         </div>
 
@@ -643,21 +761,17 @@ function getCategoryIcon(cat) {
   return '🚧';
 }
 
-function renderHazardsList() {
-  const container = document.getElementById('hazardsListContainer');
-  if (!container) return;
-
+function generateHazardsListHtml() {
   if (state.reports.length === 0) {
-    container.innerHTML = `
+    return `
       <div class="text-center py-6 text-neutral-400 text-xs">
         <p class="font-bold text-neutral-600">Nessun pericolo attivo</p>
         <p class="text-[11px]">La mobilità in zona è regolare.</p>
       </div>
     `;
-    return;
   }
 
-  container.innerHTML = state.reports.map(r => {
+  return state.reports.map(r => {
     let badgeColor = 'bg-yellow-100 text-yellow-800 border-yellow-200';
     if (r.severity === 'ROSSO') {
       badgeColor = 'bg-red-100 text-red-800 border-red-200';
@@ -669,7 +783,6 @@ function renderHazardsList() {
 
     return `
       <div class="p-3 rounded-2xl border border-neutral-200 hover:border-neutral-300 bg-white transition shadow-xs cursor-pointer" onclick="panToHazard(${r.lat}, ${r.lng}, '${r.id}')">
-        
         <div class="flex items-center justify-between mb-1">
           <span class="text-[10px] font-black uppercase px-2 py-0.5 rounded-full border ${badgeColor}">
             ${r.severity}
@@ -693,18 +806,28 @@ function renderHazardsList() {
             </button>
           </div>
         </div>
-
       </div>
     `;
   }).join('');
+}
 
+function renderHazardsList() {
+  const container = document.getElementById('hazardsListContainer');
+  if (container) {
+    container.innerHTML = generateHazardsListHtml();
+  }
+  const sheetContent = document.getElementById('mobileSheetContent');
+  if (sheetContent && state.activeTab === 'notifiche-pericoli') {
+    sheetContent.innerHTML = generateHazardsListHtml();
+  }
   if (window.lucide) lucide.createIcons();
 }
 
 function panToHazard(lat, lng, id) {
-  state.map.flyTo([lat, lng], 17, { duration: 1.2 });
+  closeMobileBottomSheet();
+  state.map.flyTo([lat, lng], 17, { duration: 1 });
   if (state.mapMarkers[id]) {
-    setTimeout(() => state.mapMarkers[id].openPopup(), 1300);
+    setTimeout(() => state.mapMarkers[id].openPopup(), 1100);
   }
 }
 
@@ -734,7 +857,7 @@ async function resolveHazard(id) {
 
 function openReportModal() {
   if (!state.currentUser) {
-    alert("Accedi o registrati prima di segnalare un pericolo!");
+    alert("Accedi o registrati per segnalare un pericolo!");
     showAuthModal();
     return;
   }
@@ -796,18 +919,18 @@ function loadDemoPhoto(type) {
   if (type === 'red') {
     state.activeTestScenario = 'valid_red';
     selectCategory('incidente', document.querySelectorAll('.cat-btn')[0]);
-    document.getElementById('reportDesc').value = "Grave scontro tra autovetture con ostruzione carreggiata.";
+    document.getElementById('reportDesc').value = "Grave scontro tra autovetture all'incrocio.";
   } else if (type === 'orange') {
     state.activeTestScenario = 'valid_orange';
     selectCategory('strada allagata', document.querySelectorAll('.cat-btn')[1]);
-    document.getElementById('reportDesc').value = "Strada allagata per rottura tubatura con rischio acquaplaning.";
+    document.getElementById('reportDesc').value = "Strada allagata con rischio acquaplaning.";
   } else if (type === 'yellow') {
     state.activeTestScenario = 'valid_yellow';
     selectCategory('palo pericolante', document.querySelectorAll('.cat-btn')[2]);
     document.getElementById('reportDesc').value = "Palo divelto piegato verso il marciapiede.";
   } else if (type === 'meme') {
     state.activeTestScenario = 'fake_meme';
-    document.getElementById('reportDesc').value = "Meme divertente non attinente per testare lo strike.";
+    document.getElementById('reportDesc').value = "Meme divertente per testare lo strike.";
   }
 }
 
@@ -830,7 +953,7 @@ async function submitReport() {
   btn.innerHTML = `<span>Analisi Bot AI in corso...</span>`;
 
   box.classList.remove('hidden');
-  box.className = "p-3 rounded-xl border text-xs bg-neutral-100 border-neutral-300 text-neutral-800 animate-pulse";
+  box.className = "p-2.5 rounded-xl border text-xs bg-neutral-100 border-neutral-300 text-neutral-800 animate-pulse";
   box.innerHTML = `<b>Bot AI:</b> Verifica autenticità foto e gravità in corso...`;
 
   try {
@@ -854,7 +977,7 @@ async function submitReport() {
     const data = await res.json();
 
     if (res.ok) {
-      box.className = "p-3 rounded-xl border text-xs bg-emerald-50 border-emerald-300 text-emerald-800";
+      box.className = "p-2.5 rounded-xl border text-xs bg-emerald-50 border-emerald-300 text-emerald-800";
       box.innerHTML = `
         <div class="font-bold mb-0.5">FOTO AUTENTICA APPROVATA</div>
         <p><b>Codice:</b> ${data.codice_gravita} - ${data.dettagli}</p>
@@ -869,17 +992,17 @@ async function submitReport() {
         btn.innerHTML = `<i data-lucide="send" class="w-3.5 h-3.5"></i> <span>Invia Segnalazione</span>`;
         fetchReports();
         checkAuthSession();
-      }, 1600);
+      }, 1500);
 
     } else {
       if (data.status === 'BANNED') {
-        box.className = "p-3 rounded-xl border text-xs bg-red-50 border-red-300 text-red-900";
+        box.className = "p-2.5 rounded-xl border text-xs bg-red-50 border-red-300 text-red-900";
         box.innerHTML = `
           <div class="font-bold text-red-700 mb-0.5">3° STRIKE: ACCOUNT SOSPESO PER 24 ORE</div>
           <p>${data.message}</p>
         `;
       } else {
-        box.className = "p-3 rounded-xl border text-xs bg-amber-50 border-amber-300 text-amber-900";
+        box.className = "p-2.5 rounded-xl border text-xs bg-amber-50 border-amber-300 text-amber-900";
         box.innerHTML = `
           <div class="font-bold text-amber-800 mb-0.5">SEGNALAZIONE NON VALIDA (${data.strike_count}/3 STRIKE)</div>
           <p>${data.message}</p>
@@ -906,14 +1029,14 @@ function simulateGiuliaApproach() {
   state.userLocation.lat = targetHazard.lat - 0.0016;
   state.userLocation.lng = targetHazard.lng;
   updateUserLocationMarker();
-  state.map.flyTo([state.userLocation.lat, state.userLocation.lng], 16, { duration: 1.2 });
+  state.map.flyTo([state.userLocation.lat, state.userLocation.lng], 16, { duration: 1 });
 
   setTimeout(() => {
     showProximityAlert(
-      "Allerta Prossimità (A 180m in bici)",
-      `Rilevato ${targetHazard.categoria.toUpperCase()} in ${targetHazard.indirizzo}. Consigliata deviazione sul percorso sicuro!`
+      "Allerta Prossimità (A 180m)",
+      `Rilevato ${targetHazard.categoria.toUpperCase()} in ${targetHazard.indirizzo}. Consigliata deviazione!`
     );
-  }, 1400);
+  }, 1200);
 }
 
 function showProximityAlert(title, message) {
