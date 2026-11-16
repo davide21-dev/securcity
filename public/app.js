@@ -1,20 +1,22 @@
 /**
  * CityFix · Safe Mobility Web Application
- * Live Map Interface (Waze style)
- * Categories: Mappa, Notifiche Pericoli, Istruzioni, Legenda
+ * Live Waze Map Interface & UX Engine
+ * 4 Categories: Mappa, Notifiche Pericoli, Istruzioni, Legenda
  */
 
 const state = {
   currentUser: null,
   token: localStorage.getItem('safemobility_token') || null,
   reports: [],
+  activeTab: 'mappa',
   map: null,
   mapMarkers: {},
   proximityCircle: null,
   citizenMarker: null,
   safeRoutePolyline: null,
-  // Centered in Galatina (Puglia / Salento) as shown in user screenshot
-  userLocation: { lat: 40.1650, lng: 18.1710, name: "Galatina Centro (Puglia)" },
+  isCardCollapsed: false,
+  // Centered in Galatina (Puglia / Salento) as shown in user screenshots
+  userLocation: { lat: 40.1740, lng: 18.1710, name: "Galatina Centro (Puglia)" },
   selectedRadius: 200, // 200m as in PDF Slide 9: 'Giulia torna in bici a 200m'
   currentCategory: 'incidente',
   uploadedPhotoBase64: null,
@@ -53,19 +55,24 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 function initMap() {
   state.map = L.map('map', {
-    zoomControl: false
+    zoomControl: false,
+    attributionControl: false
   }).setView([state.userLocation.lat, state.userLocation.lng], 14);
 
-  // Clean, high-readability vector basemap
+  // CartoDB Voyager tiles (clean, high-readability vector map)
   L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
-    subdomains: 'abcd',
-    maxZoom: 19
+    maxZoom: 19,
+    subdomains: 'abcd'
   }).addTo(state.map);
 
   updateUserLocationMarker();
 
-  // Click on map to set report coordinates
+  // Ensure map tiles calculate their size properly
+  setTimeout(() => {
+    state.map.invalidateSize();
+  }, 250);
+
+  // Click on map to pick coordinates
   state.map.on('click', (e) => {
     state.userLocation.lat = e.latlng.lat;
     state.userLocation.lng = e.latlng.lng;
@@ -83,7 +90,7 @@ function updateUserLocationMarker() {
     state.map.removeLayer(state.proximityCircle);
   }
 
-  // Draw proximity circle (200m default)
+  // Draw proximity radar circle
   state.proximityCircle = L.circle([state.userLocation.lat, state.userLocation.lng], {
     color: '#0099FF',
     fillColor: '#0099FF',
@@ -100,7 +107,7 @@ function updateUserLocationMarker() {
         <div class="w-9 h-9 rounded-full bg-[#0099FF] border-2 border-white shadow-xl flex items-center justify-center text-white text-sm font-bold animate-pulse">
           🚲
         </div>
-        <div class="absolute -bottom-5 whitespace-nowrap bg-neutral-900 text-white text-[9px] font-bold px-2 py-0.5 rounded shadow">
+        <div class="absolute -bottom-5 whitespace-nowrap bg-neutral-900 text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow">
           ${state.currentUser ? state.currentUser.nome : "Giulia (Bici)"}
         </div>
       </div>
@@ -122,18 +129,19 @@ function centerUserLocation() {
 
 function setRadius(meters) {
   state.selectedRadius = meters;
-  const radiusText = document.getElementById('radiusTextDisplay');
-  if (radiusText) {
-    radiusText.textContent = `Raggio: ${meters}m (${meters === 200 ? 'Bici' : (meters === 500 ? 'Quartiere' : 'Auto')})`;
-  }
-  updateUserLocationMarker();
-  renderDrawerHazards();
-}
+  ['200', '500', '1500'].forEach(r => {
+    const btn = document.getElementById(`radBtn${r}`);
+    if (btn) {
+      if (parseInt(r) === meters) {
+        btn.className = "px-2 py-1 rounded bg-neutral-900 text-white font-bold text-[10px] transition";
+      } else {
+        btn.className = "px-2 py-1 rounded text-neutral-600 hover:bg-neutral-100 text-[10px] transition";
+      }
+    }
+  });
 
-function toggleRadiusPopup() {
-  const current = state.selectedRadius;
-  const next = current === 200 ? 500 : (current === 500 ? 1500 : 200);
-  setRadius(next);
+  updateUserLocationMarker();
+  renderHazardsList();
 }
 
 function swapRouteEndpoints() {
@@ -147,19 +155,18 @@ function swapRouteEndpoints() {
 }
 
 function calculateSafeRoute() {
-  // Traces a safe simulated route avoiding active hazards
   if (state.safeRoutePolyline) {
     state.map.removeLayer(state.safeRoutePolyline);
   }
 
-  // Draw clean blue route with detour around hazard
+  // Draw clean blue route that detours around the danger pin
   const lat = state.userLocation.lat;
   const lng = state.userLocation.lng;
   const routePoints = [
     [lat, lng],
-    [lat + 0.003, lng + 0.002],
-    [lat + 0.006, lng + 0.001], // Deviazione sicura
-    [lat + 0.009, lng - 0.001]
+    [lat + 0.003, lng + 0.003],
+    [lat + 0.006, lng + 0.002],
+    [lat + 0.010, lng - 0.001]
   ];
 
   state.safeRoutePolyline = L.polyline(routePoints, {
@@ -171,10 +178,79 @@ function calculateSafeRoute() {
 
   state.map.fitBounds(state.safeRoutePolyline.getBounds(), { padding: [50, 50] });
 
-  alert("Percorso Sicuro Calcolato: Deviazione attiva per evitare l'incidente su SP362!");
+  alert("Percorso Sicuro Calcolato: Deviazione attiva per evitare l'incidente all'incrocio!");
 }
 
-// ------------------- TOP MENUS & CATEGORY SWITCHER ------------------- //
+// ------------------- CARD COLLAPSE & TABS SWITCHER ------------------- //
+
+function toggleCardCollapse() {
+  const card = document.getElementById('floatingCard');
+  const pill = document.getElementById('minimizedPill');
+  const icon = document.getElementById('collapseIcon');
+
+  state.isCardCollapsed = !state.isCardCollapsed;
+
+  if (state.isCardCollapsed) {
+    card.classList.add('hidden');
+    pill.classList.remove('hidden');
+  } else {
+    card.classList.remove('hidden');
+    pill.classList.add('hidden');
+  }
+  if (window.lucide) lucide.createIcons();
+}
+
+function switchTab(tab) {
+  state.activeTab = tab;
+
+  // If card was collapsed, expand it
+  if (state.isCardCollapsed) {
+    toggleCardCollapse();
+  }
+
+  const tabs = ['mappa', 'notifiche-pericoli', 'istruzioni', 'legenda'];
+  const tabBtnMap = {
+    'mappa': document.getElementById('tabBtnMappa'),
+    'notifiche-pericoli': document.getElementById('tabBtnPericoli'),
+    'istruzioni': document.getElementById('tabBtnIstruzioni'),
+    'legenda': document.getElementById('tabBtnLegenda')
+  };
+  const contentMap = {
+    'mappa': document.getElementById('contentMappa'),
+    'notifiche-pericoli': document.getElementById('contentPericoli'),
+    'istruzioni': document.getElementById('contentIstruzioni'),
+    'legenda': document.getElementById('contentLegenda')
+  };
+
+  tabs.forEach(t => {
+    const btn = tabBtnMap[t];
+    const content = contentMap[t];
+    if (btn) {
+      btn.className = "flex-1 py-1.5 px-2 rounded-lg text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 transition text-center flex items-center justify-center gap-1.5 relative";
+    }
+    if (content) {
+      content.classList.add('hidden');
+    }
+  });
+
+  const activeBtn = tabBtnMap[tab];
+  const activeContent = contentMap[tab];
+
+  if (activeBtn) {
+    activeBtn.className = "flex-1 py-1.5 px-2 rounded-lg bg-neutral-900 text-white shadow-xs transition text-center flex items-center justify-center gap-1.5 relative font-bold";
+  }
+  if (activeContent) {
+    activeContent.classList.remove('hidden');
+  }
+
+  if (tab === 'mappa') {
+    state.map.invalidateSize();
+  } else if (tab === 'notifiche-pericoli') {
+    renderHazardsList();
+  }
+
+  if (window.lucide) lucide.createIcons();
+}
 
 function toggleAppMenu() {
   const menu = document.getElementById('appDropdownMenu');
@@ -189,86 +265,6 @@ function toggleMoreMenu() {
   const app = document.getElementById('appDropdownMenu');
   if (app) app.classList.add('hidden');
   if (menu) menu.classList.toggle('hidden');
-}
-
-function toggleSideDrawer() {
-  const drawer = document.getElementById('sideDrawer');
-  if (drawer) drawer.classList.toggle('hidden');
-  if (window.lucide) lucide.createIcons();
-}
-
-function activateCategory(cat) {
-  // Close popups
-  const appMenu = document.getElementById('appDropdownMenu');
-  if (appMenu) appMenu.classList.add('hidden');
-
-  // Update card title and pills
-  const cardTitle = document.getElementById('floatingCardTitle');
-  const pillM = document.getElementById('pillMappa');
-  const pillP = document.getElementById('pillPericoli');
-  const pillL = document.getElementById('pillLegenda');
-
-  [pillM, pillP, pillL].forEach(p => {
-    if (p) p.className = "px-2 py-0.5 rounded hover:bg-neutral-100 text-neutral-600 transition";
-  });
-
-  if (cat === 'mappa') {
-    if (cardTitle) cardTitle.textContent = "Istruzioni di guida";
-    if (pillM) pillM.className = "px-2 py-0.5 rounded bg-neutral-900 text-white font-bold transition";
-    const drawer = document.getElementById('sideDrawer');
-    if (drawer) drawer.classList.add('hidden');
-    centerUserLocation();
-  } else if (cat === 'notifiche-pericoli') {
-    if (cardTitle) cardTitle.textContent = "Notifiche Pericoli";
-    if (pillP) pillP.className = "px-2 py-0.5 rounded bg-red-600 text-white font-bold transition";
-    openDrawerTab('notifiche-pericoli');
-  } else if (cat === 'istruzioni') {
-    if (cardTitle) cardTitle.textContent = "Istruzioni";
-    openDrawerTab('istruzioni');
-  } else if (cat === 'legenda') {
-    if (cardTitle) cardTitle.textContent = "Legenda";
-    if (pillL) pillL.className = "px-2 py-0.5 rounded bg-amber-500 text-white font-bold transition";
-    openDrawerTab('legenda');
-  }
-}
-
-function openDrawerTab(tab) {
-  const drawer = document.getElementById('sideDrawer');
-  if (drawer) drawer.classList.remove('hidden');
-  setDrawerTab(tab);
-}
-
-function setDrawerTab(tab) {
-  const tabP = document.getElementById('tabDrawerPericoli');
-  const tabI = document.getElementById('tabDrawerIstruzioni');
-  const tabL = document.getElementById('tabDrawerLegenda');
-
-  const contentP = document.getElementById('drawerTabContentPericoli');
-  const contentI = document.getElementById('drawerTabContentIstruzioni');
-  const contentL = document.getElementById('drawerTabContentLegenda');
-
-  [tabP, tabI, tabL].forEach(t => {
-    if (t) t.className = "flex-1 py-3 text-center text-neutral-400 hover:text-neutral-700 transition";
-  });
-  [contentP, contentI, contentL].forEach(c => {
-    if (c) c.classList.add('hidden');
-  });
-
-  if (tab === 'notifiche-pericoli') {
-    if (tabP) tabP.className = "flex-1 py-3 text-center text-neutral-900 border-b-2 border-neutral-900 font-bold";
-    if (contentP) contentP.classList.remove('hidden');
-  } else if (tab === 'istruzioni') {
-    if (tabI) tabI.className = "flex-1 py-3 text-center text-neutral-900 border-b-2 border-neutral-900 font-bold";
-    if (contentI) contentI.classList.remove('hidden');
-  } else if (tab === 'legenda') {
-    if (tabL) tabL.className = "flex-1 py-3 text-center text-neutral-900 border-b-2 border-neutral-900 font-bold";
-    if (contentL) contentL.classList.remove('hidden');
-  }
-  if (window.lucide) lucide.createIcons();
-}
-
-function openTechSupport() {
-  alert("Supporto Didap Hackathon 2026: Team Didap disponibile per chiarimenti tecnici su CityFix Safe Mobility.");
 }
 
 // ------------------- AUTHENTICATION LOGIC ------------------- //
@@ -316,7 +312,7 @@ function renderUserHeader() {
   const strikes = u.false_reports_count || 0;
 
   container.innerHTML = `
-    <div class="flex items-center gap-1.5 bg-white/95 px-3 py-1.5 rounded-full border border-neutral-200/80 shadow-md text-xs">
+    <div class="flex items-center gap-1.5 bg-white px-3 py-1.5 rounded-full border border-neutral-200/80 shadow-md text-xs">
       <div class="w-6 h-6 rounded-full bg-[#0099FF] text-white flex items-center justify-center font-bold text-[11px]">
         ${u.nome.charAt(0)}
       </div>
@@ -534,7 +530,7 @@ async function submitResetPassword() {
     });
     const data = await res.json();
     if (res.ok) {
-      showAuthSuccess("Password reimpostata! Ora effettua l'accesso.");
+      showAuthSuccess("Password reimpostata con successo! Ora accedi.");
       setTimeout(() => {
         setAuthTab('login');
         document.getElementById('loginIdentifier').value = identifier;
@@ -554,7 +550,7 @@ function logout() {
   renderUserHeader();
 }
 
-// ------------------- REPORTS & NOTIFICHE PERICOLI ------------------- //
+// ------------------- REPORTS & NOTIFICHE PERICOLI LIST ------------------- //
 
 async function fetchReports() {
   try {
@@ -563,7 +559,7 @@ async function fetchReports() {
     if (res.ok) {
       state.reports = data.reports || [];
       renderMapMarkers();
-      renderDrawerHazards();
+      renderHazardsList();
     }
   } catch (err) {
     console.error("Failed fetching reports:", err);
@@ -574,8 +570,10 @@ function renderMapMarkers() {
   Object.values(state.mapMarkers).forEach(m => state.map.removeLayer(m));
   state.mapMarkers = {};
 
-  const menuCount = document.getElementById('menuDangerCount');
-  if (menuCount) menuCount.textContent = state.reports.length;
+  const badgeCount = document.getElementById('badgePericoliCount');
+  if (badgeCount) badgeCount.textContent = state.reports.length;
+  const labelCount = document.getElementById('pericoliCountLabel');
+  if (labelCount) labelCount.textContent = `${state.reports.length} segnalazioni`;
 
   state.reports.forEach(r => {
     let pinColor = '#EAB308'; // Giallo
@@ -603,27 +601,27 @@ function renderMapMarkers() {
     const marker = L.marker([r.lat, r.lng], { icon }).addTo(state.map);
     
     const popupContent = `
-      <div class="p-2.5 max-w-xs font-sans text-xs">
+      <div class="p-2 max-w-xs font-sans text-xs">
         <div class="flex items-center justify-between mb-1">
-          <span class="px-2 py-0.5 rounded-full text-[10px] font-black text-white" style="background-color: ${pinColor}">
+          <span class="px-2 py-0.5 rounded text-[10px] font-black text-white" style="background-color: ${pinColor}">
             CODICE ${r.severity}
           </span>
           <span class="text-[10px] text-neutral-400 font-bold">${Math.round(r.seconds_left / 60)} min</span>
         </div>
         <h4 class="font-extrabold text-xs text-neutral-900 mb-0.5 uppercase">${r.categoria}</h4>
-        <p class="text-neutral-600 mb-2 leading-relaxed text-[11px]">${r.descrizione}</p>
+        <p class="text-neutral-600 mb-2 leading-tight text-[11px]">${r.descrizione}</p>
         
-        ${r.foto_url ? `<img src="${r.foto_url}" class="w-full h-24 object-cover rounded-xl mb-2 shadow-xs">` : ''}
+        ${r.foto_url ? `<img src="${r.foto_url}" class="w-full h-24 object-cover rounded-xl mb-2">` : ''}
 
         <div class="p-1.5 rounded-lg bg-neutral-100 text-[10px] text-neutral-600 mb-2">
           <b>Bot AI:</b> ${r.ai_reason}
         </div>
 
-        <div class="pt-2 border-t border-neutral-100 flex items-center gap-1.5">
-          <button onclick="confirmHazard('${r.id}')" class="flex-1 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 font-bold py-1.5 px-2 rounded-lg text-[10px] flex items-center justify-center gap-1">
+        <div class="pt-1.5 border-t border-neutral-100 flex items-center gap-1.5">
+          <button onclick="confirmHazard('${r.id}')" class="flex-1 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 font-bold py-1 px-1.5 rounded-lg text-[10px] flex items-center justify-center gap-1">
             👍 C'è (${r.confirm_count})
           </button>
-          <button onclick="resolveHazard('${r.id}')" class="flex-1 bg-red-50 hover:bg-red-100 text-red-600 font-bold py-1.5 px-2 rounded-lg text-[10px] flex items-center justify-center gap-1">
+          <button onclick="resolveHazard('${r.id}')" class="flex-1 bg-red-50 hover:bg-red-100 text-red-600 font-bold py-1 px-1.5 rounded-lg text-[10px] flex items-center justify-center gap-1">
             ❌ Non c'è più (${r.resolved_count}/2)
           </button>
         </div>
@@ -645,18 +643,15 @@ function getCategoryIcon(cat) {
   return '🚧';
 }
 
-function renderDrawerHazards() {
-  const container = document.getElementById('drawerHazardsList');
-  const countBadge = document.getElementById('drawerActiveHazardsCount');
+function renderHazardsList() {
+  const container = document.getElementById('hazardsListContainer');
   if (!container) return;
-
-  if (countBadge) countBadge.textContent = state.reports.length;
 
   if (state.reports.length === 0) {
     container.innerHTML = `
-      <div class="text-center py-8 text-neutral-400 text-xs">
+      <div class="text-center py-6 text-neutral-400 text-xs">
         <p class="font-bold text-neutral-600">Nessun pericolo attivo</p>
-        <p class="text-[11px]">La mobilità è regolare.</p>
+        <p class="text-[11px]">La mobilità in zona è regolare.</p>
       </div>
     `;
     return;
@@ -690,10 +685,10 @@ function renderDrawerHazards() {
         <div class="flex items-center justify-between pt-2 border-t border-neutral-100 text-xs">
           <span class="text-[10px] text-neutral-400">${Math.round(r.seconds_left / 60)} min rimasti</span>
           <div class="flex items-center gap-1.5">
-            <button onclick="event.stopPropagation(); confirmHazard('${r.id}')" class="px-2 py-1 rounded bg-neutral-100 hover:bg-neutral-200 text-neutral-700 font-bold text-[10px]">
+            <button onclick="event.stopPropagation(); confirmHazard('${r.id}')" class="px-2 py-1 rounded-lg bg-neutral-100 hover:bg-neutral-200 text-neutral-700 font-bold text-[10px]">
               👍 C'è (${r.confirm_count})
             </button>
-            <button onclick="event.stopPropagation(); resolveHazard('${r.id}')" class="px-2 py-1 rounded bg-red-50 hover:bg-red-100 text-red-600 font-bold text-[10px]">
+            <button onclick="event.stopPropagation(); resolveHazard('${r.id}')" class="px-2 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 font-bold text-[10px]">
               ❌ Non c'è più
             </button>
           </div>
@@ -739,7 +734,7 @@ async function resolveHazard(id) {
 
 function openReportModal() {
   if (!state.currentUser) {
-    alert("Accedi o registrati per segnalare un pericolo!");
+    alert("Accedi o registrati prima di segnalare un pericolo!");
     showAuthModal();
     return;
   }
@@ -827,7 +822,7 @@ async function submitReport() {
     return;
   }
   if (!state.uploadedPhotoBase64) {
-    alert("Inserisci o scatta una foto del pericolo!");
+    alert("Carica o scatta una foto del pericolo!");
     return;
   }
 
@@ -836,7 +831,7 @@ async function submitReport() {
 
   box.classList.remove('hidden');
   box.className = "p-3 rounded-xl border text-xs bg-neutral-100 border-neutral-300 text-neutral-800 animate-pulse";
-  box.innerHTML = `<b>Bot AI:</b> Verifica autenticità e assegnazione codice in corso...`;
+  box.innerHTML = `<b>Bot AI:</b> Verifica autenticità foto e gravità in corso...`;
 
   try {
     const res = await fetch('/api/reports/create', {
@@ -874,7 +869,7 @@ async function submitReport() {
         btn.innerHTML = `<i data-lucide="send" class="w-3.5 h-3.5"></i> <span>Invia Segnalazione</span>`;
         fetchReports();
         checkAuthSession();
-      }, 1800);
+      }, 1600);
 
     } else {
       if (data.status === 'BANNED') {
