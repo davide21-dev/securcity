@@ -1,5 +1,5 @@
 # 🎤 PITCH DECK & GUIDA ALLA PRESENTAZIONE
-## CityFix · Safe Mobility Module
+## SecurCity
 **Hackathon Didap 2026 · Chiostro Polo dell'Innovazione**  
 *Tempo stimato pitch: 4-5 minuti + Q&A Giuria*
 
@@ -9,18 +9,18 @@
 
 ```mermaid
 flowchart LR
-    A["1. Il Problema<br>(Marco & Giulia)"] --> B["2. La Soluzione<br>(Safe Mobility)"]
+    A["1. Il Problema<br>(Marco & Giulia)"] --> B["2. La Soluzione<br>(SecurCity)"]
     B --> C["3. Live Demo<br>(Bot AI & 200m Alert)"]
     C --> D["4. AI Act & Comune<br>(Sicurezza & Triage)"]
-    D --> E["5. Business & Impatto<br>(Integrazione CityFix)"]
+    D --> E["5. Business & Impatto<br>(Integrazione Ecosistema)"]
 ```
 
 ---
 
 ### Slide 1: Introduzione & Hook (30 secondi)
-- **Titolo**: *CityFix Safe Mobility: La rete civica di sicurezza predittiva in tempo reale.*
+- **Titolo**: *SecurCity: La rete civica di sicurezza predittiva in tempo reale.*
 - **Lo Storytelling**:  
-  > *"Immaginate Marco. Alle 13:15 è fermo a un incrocio del centro: c'è un brutto incidente, due auto distrutte e vetri sull'asfalto. A soli 200 metri c'è Giulia, 16 anni, che torna da scuola in bicicletta. Oggi Giulia non ha modo di saperlo finché non ci si ritrova in mezzo. Quanti minuti passano prima che un pericolo venga rimosso o prima che qualcun altro si faccia male? Con il nuovo modulo Safe Mobility di CityFix, Marco impiega 3 secondi per avvisare chi si trova nelle vicinanze, e Giulia cambia strada prima del pericolo."*
+  > *"Immaginate Marco. Alle 13:15 è fermo a un incrocio del centro: c'è un brutto incidente, due auto distrutte e vetri sull'asfalto. A soli 200 metri c'è Giulia, 16 anni, che torna da scuola in bicicletta. Oggi Giulia non ha modo di saperlo finché non ci si ritrova in mezzo. Quanti minuti passano prima che un pericolo venga rimosso o prima che qualcun altro si faccia male? Con SecurCity, Marco impiega 3 secondi per avvisare chi si trova nelle vicinanze, e Giulia cambia strada prima del pericolo."*
 
 ---
 
@@ -76,10 +76,10 @@ flowchart LR
 ---
 
 ### Slide 6: Conclusioni & Roadmap di Prodotto (30 secondi)
-- **Perché CityFix Safe Mobility vince**:
+- **Perché SecurCity vince**:
   - Risponde esattamente a tutti i 5 requisiti del brief Didap.
   - Zero attrito: si avvia ovunque senza installazioni pesanti.
-  - Sinergia perfetta con l'ecosistema CityFix già attivo nei comuni della Puglia.
+  - Sinergia perfetta con l'ecosistema municipale e smart city già attivo nei comuni della Puglia.
 - **Call to Action**: *«Rendiamo la mobilità più sicura, un quartiere alla volta.»*
 
 ---

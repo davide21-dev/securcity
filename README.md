@@ -1,8 +1,8 @@
-# 🚲 CityFix · Safe Mobility Module
+# 🚲 SecurCity
 > **Modulo di Sicurezza Urbana & Allerte di Prossimità con Moderazione AI**  
 > *Sviluppato in occasione del Safe Mobility Hackathon (16 e 17 novembre 2026 · Didap SRLS, Chiostro - Polo per l'Innovazione)*
 
-![Didap CityFix Banner](https://img.shields.io/badge/CityFix-Safe_Mobility_2026-1B4332?style=for-the-badge&logo=shield)
+![SecurCity Banner](https://img.shields.io/badge/SecurCity-2026-1B4332?style=for-the-badge&logo=shield)
 ![Status](https://img.shields.io/badge/Status-Prototipo_Funzionante_e_Testato-2D6A4F?style=for-the-badge)
 ![Zero Dependencies](https://img.shields.io/badge/Dipendenze-Zero_(Python_3_Standard_Lib)-brightgreen?style=for-the-badge)
 ![AI Act Compliant](https://img.shields.io/badge/AI_Act-Conforme-blue?style=for-the-badge)
@@ -54,7 +54,7 @@ Per agevolare il testing immediato durante il pitch, l'applicazione include 3 ac
 | :--- | :--- | :--- | :--- |
 | **Marco Rossi** | `marco.rossi@email.it` | `Password123!` | Cittadino Segnalatore (scatta foto e segnala incidenti) |
 | **Giulia Bianchi** | `giulia.b@email.it` | `Password123!` | Ciclista a 200m (riceve notifiche geofencing) |
-| **Operatore Comune** | `operatore@comune.bari.it` | `AdminCityFix2026!` | Sala Operativa & Triage Emergenze Comunali |
+| **Operatore Comune** | `operatore@comune.bari.it` | `AdminSecurCity2026!` | Sala Operativa & Triage Emergenze Comunali |
 
 ---
 
@@ -117,13 +117,13 @@ Il bot multimodale valuta ogni segnalazione prima di renderla visibile:
 
 ## 📋 Risposte alle 5 Domande della Giuria (Slide 10)
 
-| # | Domanda della Traccia | Risposta e Soluzione CityFix Safe Mobility |
+| # | Domanda della Traccia | Risposta e Soluzione SecurCity |
 | :-: | :--- | :--- |
 | **01** | *Come si segnala un pericolo in pochi secondi?* | Interfaccia Quick-Report one-touch con 6 preset iconici, geolocalizzazione automatica istantanea e scatto foto diretto. Nessun form prolisso. |
 | **02** | *Chi riceve l'avviso? Quanto è grande il raggio, in città e in paese?* | Geofencing adattivo basato sulla velocità di spostamento: 200m per pedoni/bici (bassa velocità/alta precisione) fino a 1.5-3km per auto e piccoli paesi con meno densità abitativa. |
 | **03** | *Quanto resta un pericolo sulla mappa, e come sparisce?* | Durata base di 1 ora (TTL decrescente visibile con timer). Sparisce o per decadimento naturale o per consenso rapido con 2 voti *"Non c'è più"*. |
 | **04** | *Come evitiamo segnalazioni false o offensive?* | Bot AI Vision multimodale che rileva fake, meme e incongruenze. Sistema a 3 strike con blocco/ban rigido di 24 ore applicato a livello server e database. |
-| **05** | *Qual è il dominio di competenza del comune?* | CityFix non sostituisce i numeri di soccorso (112), ma funge da strato collaborativo cittadino e fornisce al Comune una dashboard di triage per pianificare gli interventi di Polizia Locale e Protezione Civile. |
+| **05** | *Qual è il dominio di competenza del comune?* | SecurCity non sostituisce i numeri di soccorso (112), ma funge da strato collaborativo cittadino e fornisce al Comune una dashboard di triage per pianificare gli interventi di Polizia Locale e Protezione Civile. |
 
 ---
 
@@ -136,7 +136,7 @@ Il bot multimodale valuta ogni segnalazione prima di renderla visibile:
 ---
 
 ## 🏆 Criteri di Valutazione Hackathon
-- **Idea (10/10)**: Modulo coerente, focalizzato sulla sicurezza immediata, perfettamente integrato nell'ecosistema CityFix.
+- **Idea (10/10)**: Modulo coerente, focalizzato sulla sicurezza immediata, perfettamente integrato nell'ecosistema SecurCity.
 - **Presentazione (15/15)**: Pitch deck dettagliato pronto (`PITCH.md`), simulazione interattiva del caso Giulia in 1 click.
 - **Esecuzione (5/5)**: Prototipo pienamente funzionante, responsive, avviabile in locale con 1 riga di comando.
 

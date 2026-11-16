@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CityFix - Safe Mobility Module
+SecurCity
 Backend Server & AI Moderation Engine for Hackathon 2026 (Didap)
 Author: Hackathon Team
 Runs on Python 3 standard library - Zero external dependencies needed!
@@ -154,29 +154,34 @@ def seed_sample_data(conn):
     """, ("usr_giulia", "Giulia", "Bianchi", "2006-09-24", "giulia.b@email.it", "+39 340 7654321", h_giulia, s_giulia, now_str))
     
     # Sample Operator/Admin (Comune di Bari / Polo Innovazione)
-    h_admin, s_admin = hash_password("AdminCityFix2026!")
+    h_admin, s_admin = hash_password("AdminSecurCity2026!")
     cursor.execute("""
     INSERT INTO users (id, nome, cognome, data_nascita, email, telefono, password_hash, salt, false_reports_count, is_admin, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?)
     """, ("usr_admin", "Operatore", "Comune", "1985-01-01", "operatore@comune.bari.it", "+39 080 5001122", h_admin, s_admin, now_str))
 
-    # Pre-populate sample real-world reports around Bari / Hackathon Chiostro
-    # Chiostro Polo dell'Innovazione approx coords: 41.1171, 16.8719
+    # Pre-populate sample real-world reports in Galatina (Salento) & Bari
+    # Galatina center: 40.1740, 18.1710 (matches user screenshot & Giulia's 200m proximity)
     sample_reports = [
         ("rep_1", "usr_marco", "Marco Rossi", "incidente", "Tamponamento tra due auto all'incrocio, traffico bloccato e detriti in strada", "ROSSO", 1, 
          "Rilevato impatto veicolare serio con ostruzione carreggiata. Pericolo collisioni secondarie.",
-         "https://images.unsplash.com/photo-1543393470-b2c64b6e8d2e?w=800&auto=format&fit=crop&q=60", 41.1182, 16.8725, "Via Sparano da Bari incrocio Via Piccinni", 2, 0,
+         "https://images.unsplash.com/photo-1543393470-b2c64b6e8d2e?w=800&auto=format&fit=crop&q=60", 40.1748, 18.1722, "Piazza Dante Alighieri, Galatina", 2, 0,
          (datetime.utcnow() - timedelta(minutes=15)).isoformat(), (datetime.utcnow() + timedelta(minutes=45)).isoformat()),
         
         ("rep_2", "usr_marco", "Marco Rossi", "strada allagata", "Tombino otturato e carreggiata allagata dopo forte pioggia, acqua alta 25cm", "ARANCIONE", 1,
          "Allagamento localizzato con potenziale acquaplaning e pericolo per due ruote.",
-         "https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?w=800&auto=format&fit=crop&q=60", 41.1160, 16.8702, "Corso Vittorio Emanuele II", 3, 0,
+         "https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?w=800&auto=format&fit=crop&q=60", 40.1780, 18.1760, "SP362 Galatina-Soleto", 3, 0,
          (datetime.utcnow() - timedelta(minutes=30)).isoformat(), (datetime.utcnow() + timedelta(minutes=30)).isoformat()),
         
         ("rep_3", "usr_marco", "Marco Rossi", "palo pericolante", "Palo della segnaletica divelto e inclinato verso il marciapiede", "GIALLO", 1,
          "Ostacolo statico su marciapiede. Rischio moderato pedonale, nessun blocco viario immediato.",
-         "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=800&auto=format&fit=crop&q=60", 41.1150, 16.8740, "Piazza del Ferrarese", 1, 0,
+         "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=800&auto=format&fit=crop&q=60", 40.1650, 18.1680, "Contrada Guidano / Noha, Galatina", 1, 0,
          (datetime.utcnow() - timedelta(minutes=5)).isoformat(), (datetime.utcnow() + timedelta(minutes=55)).isoformat()),
+        
+        ("rep_4", "usr_marco", "Marco Rossi", "incidente", "Incidente moto-furgone con traffico rallentato", "ROSSO", 1,
+         "Collisione su arteria principale. Prestare attenzione a mezzi fermi.",
+         "https://images.unsplash.com/photo-1543393470-b2c64b6e8d2e?w=800&auto=format&fit=crop&q=60", 41.1182, 16.8725, "Via Sparano da Bari incrocio Via Piccinni", 2, 0,
+         (datetime.utcnow() - timedelta(minutes=10)).isoformat(), (datetime.utcnow() + timedelta(minutes=50)).isoformat()),
     ]
     
     for r in sample_reports:
@@ -259,7 +264,7 @@ def evaluate_report_with_ai(categoria, descrizione, foto_data, custom_api_key=No
             mime_type = header.split(";")[0].split(":")[1]
             
             prompt_text = f"""
-            Sei il bot di moderazione e sicurezza urbana di CityFix Safe Mobility.
+            Sei il bot di moderazione e sicurezza urbana di SecurCity.
             Categoria dichiarata: {categoria}
             Descrizione: {descrizione}
             
@@ -940,7 +945,7 @@ def run():
     server_address = ('', PORT)
     httpd = HTTPServer(server_address, SafeMobilityHandler)
     print(f"==================================================")
-    print(f"  CityFix - Safe Mobility Web App")
+    print(f"  SecurCity Web App")
     print(f"  KICK-OFF SAFE MOBILITY HACK · DIDAP")
     print(f"  Server attivo su http://localhost:{PORT}")
     print(f"==================================================")

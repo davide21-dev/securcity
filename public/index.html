@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>CityFix · Safe Mobility | OpenStreetMap & Allerte Stradali</title>
+  <title>SecurCity | Mappa e Allerte Stradali</title>
   
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -122,9 +122,9 @@
     <!-- Top row: Brand + 112 + Accedi -->
     <div class="bg-white/95 backdrop-blur-md rounded-2xl shadow-md border border-neutral-200/80 px-3 py-2 flex items-center justify-between">
       <div class="flex items-center gap-2">
-        <div class="w-7 h-7 rounded-xl bg-waze-blue text-white flex items-center justify-center font-black text-xs">CF</div>
+        <div class="w-7 h-7 rounded-xl bg-waze-blue text-white flex items-center justify-center font-black text-xs">SC</div>
         <div>
-          <span class="font-extrabold text-xs text-neutral-900 block leading-tight">CityFix</span>
+          <span class="font-extrabold text-xs text-neutral-900 block leading-tight">SecurCity</span>
           <span class="text-[9px] text-neutral-400 font-medium">Safe Mobility</span>
         </div>
       </div>
@@ -158,10 +158,10 @@
     <div class="px-4 py-3 border-b border-neutral-100 flex items-center justify-between">
       <div class="flex items-center gap-2.5">
         <div class="w-8 h-8 rounded-xl bg-waze-blue text-white flex items-center justify-center font-black text-xs shadow-sm">
-          CF
+          SC
         </div>
         <div>
-          <h2 class="font-extrabold text-sm text-neutral-900 leading-tight">CityFix · Safe Mobility</h2>
+          <h2 class="font-extrabold text-sm text-neutral-900 leading-tight">SecurCity</h2>
           <p class="text-[10px] text-neutral-400 font-medium">OpenStreetMap · Galatina & Bari</p>
         </div>
       </div>
@@ -313,7 +313,7 @@
 
     <!-- Desktop Card Footer -->
     <div class="p-3 bg-neutral-50 border-t border-neutral-100 flex items-center justify-between">
-      <span class="text-[10px] text-neutral-400 font-medium">Safe Mobility · Didap 2026</span>
+      <span class="text-[10px] text-neutral-400 font-medium">SecurCity · Didap 2026</span>
       <button onclick="openReportModal()" class="bg-red-600 hover:bg-red-700 text-white font-bold text-[11px] px-3.5 py-1.5 rounded-lg transition shadow-xs flex items-center gap-1.5">
         <i data-lucide="plus" class="w-3.5 h-3.5"></i>
         <span>Segnala</span>
@@ -324,8 +324,8 @@
 
   <!-- Minimized Desktop Pill -->
   <button id="desktopMinimizedPill" onclick="toggleDesktopCardCollapse()" class="hidden absolute top-4 left-4 z-20 bg-white/95 backdrop-blur-md px-4 py-2.5 rounded-2xl shadow-xl border border-neutral-200/90 items-center gap-2.5 text-xs font-bold text-neutral-800 hover:bg-neutral-50 transition">
-    <div class="w-6 h-6 rounded-lg bg-waze-blue text-white flex items-center justify-center text-[10px]">CF</div>
-    <span>Istruzioni & Pericoli</span>
+    <div class="w-6 h-6 rounded-lg bg-waze-blue text-white flex items-center justify-center text-[10px]">SC</div>
+    <span>SecurCity · Istruzioni</span>
     <i data-lucide="chevron-down" class="w-4 h-4 text-neutral-400"></i>
   </button>
 
@@ -512,7 +512,7 @@
     <div class="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden border border-neutral-200">
       
       <div class="p-4 bg-neutral-900 text-white text-center relative">
-        <h3 class="text-sm font-bold">CityFix · Safe Mobility</h3>
+        <h3 class="text-sm font-bold">SecurCity</h3>
         <p class="text-[11px] text-neutral-400">Accedi o registrati per segnalare</p>
         <button onclick="hideAuthModal()" class="absolute top-3.5 right-4 text-neutral-400 hover:text-white">
           <i data-lucide="x" class="w-4 h-4"></i>
@@ -560,7 +560,7 @@
             <div class="flex justify-center gap-1.5">
               <button type="button" onclick="quickFillLogin('marco.rossi@email.it', 'Password123!')" class="px-2 py-1 text-[10px] font-medium bg-neutral-100 hover:bg-neutral-200 rounded-lg">Marco</button>
               <button type="button" onclick="quickFillLogin('giulia.b@email.it', 'Password123!')" class="px-2 py-1 text-[10px] font-medium bg-neutral-100 hover:bg-neutral-200 rounded-lg">Giulia</button>
-              <button type="button" onclick="quickFillLogin('operatore@comune.bari.it', 'AdminCityFix2026!')" class="px-2 py-1 text-[10px] font-medium bg-neutral-100 hover:bg-neutral-200 rounded-lg">Comune</button>
+              <button type="button" onclick="quickFillLogin('operatore@comune.bari.it', 'AdminSecurCity2026!')" class="px-2 py-1 text-[10px] font-medium bg-neutral-100 hover:bg-neutral-200 rounded-lg">Comune</button>
             </div>
           </div>
         </form>

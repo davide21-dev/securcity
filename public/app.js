@@ -1,5 +1,5 @@
 /**
- * CityFix · Safe Mobility Web Application
+ * SecurCity Web Application
  * OpenStreetMap Engine (Zero API Key) & Responsive Mobile/Desktop UX
  * Categories: Mappa, Notifiche Pericoli, Istruzioni, Legenda
  */
