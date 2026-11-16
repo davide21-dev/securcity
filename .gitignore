@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.env
+
+# Database (optional to commit or ignore, let's keep database template/seed reproducible)
+data/*.db-journal
+
+# OS files
+.DS_Store
+Thumbs.db
