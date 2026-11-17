@@ -1,13 +1,14 @@
 /**
  * SecurCity Web Application
  * OpenStreetMap Engine (Zero API Key) & Responsive Mobile/Desktop UX
- * Categories: Mappa, Notifiche Pericoli, Istruzioni, Legenda
+ * Categories: Mappa, Notifiche Pericoli, Notifiche Comune, Istruzioni, Legenda
  */
 
 const state = {
   currentUser: null,
   token: localStorage.getItem('safemobility_token') || null,
   reports: [],
+  municipalityAlerts: JSON.parse(localStorage.getItem('securcity_comune_alerts') || '[]'),
   activeTab: 'mappa',
   map: null,
   mapMarkers: {},
@@ -15,14 +16,87 @@ const state = {
   citizenMarker: null,
   safeRoutePolyline: null,
   isDesktopCardCollapsed: false,
-  // Centered in Galatina (Puglia / Salento) as shown in user screenshots
   userLocation: { lat: 40.1740, lng: 18.1710, name: "Galatina Centro (Puglia)" },
-  selectedRadius: 200, // 200m as in PDF Slide 9: 'Giulia torna in bici a 200m'
+  realGpsLocation: { lat: 40.1740, lng: 18.1710 },
+  selectedRadius: 100, // Raggio fissato a 100m
   currentCategory: 'incidente',
   uploadedPhotoBase64: null,
   activeTestScenario: null,
   banTimerInterval: null
 };
+
+let visionModel = null;
+
+// Durata in secondi per livello di gravità: Giallo = 3h, Arancione = 12h, Rosso = 24h
+function getDurationBySeverity(severity) {
+  const sev = (severity || '').toUpperCase();
+  if (sev === 'ROSSO') return 24 * 3600;     // 24 ore (86400s)
+  if (sev === 'ARANCIONE') return 12 * 3600; // 12 ore (43200s)
+  return 3 * 3600;                           // 3 ore (10800s) - GIALLO
+}
+
+function formatRemainingTime(secondsLeft) {
+  if (secondsLeft <= 0) return 'Scaduto';
+  const totalMins = Math.ceil(secondsLeft / 60);
+  if (totalMins < 60) return `${totalMins} min`;
+  const hours = Math.floor(totalMins / 60);
+  const mins = totalMins % 60;
+  return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+}
+
+// Identifica correttamente il Comune dando priorità assoluta all'indirizzo testuale inserito
+function resolveMunicipalityName(lat, lng, indirizzo = '') {
+  const addrLower = (indirizzo || '').toLowerCase();
+
+  // 1. Controllo esplicito nel testo dell'indirizzo
+  if (addrLower.includes('galatina') || addrLower.includes('noha') || addrLower.includes('collemeto') || addrLower.includes('ostante')) {
+    return 'Galatina';
+  }
+  if (addrLower.includes('brindisi')) {
+    return 'Brindisi';
+  }
+  if (addrLower.includes('san donaci')) {
+    return 'San Donaci';
+  }
+  if (addrLower.includes('lecce')) {
+    return 'Lecce';
+  }
+
+  // 2. Fallback sulle coordinate geografiche se l'indirizzo è generico
+  if (lat >= 40.12 && lat <= 40.23 && lng >= 18.10 && lng <= 18.25) {
+    return 'Galatina';
+  }
+  if (lat >= 40.55 && lat <= 40.70 && lng >= 17.85 && lng <= 18.05) {
+    return 'Brindisi';
+  }
+  if (lat >= 40.42 && lat <= 40.48 && lng >= 17.88 && lng <= 17.96) {
+    return 'San Donaci';
+  }
+  if (lat >= 40.31 && lat <= 40.40 && lng >= 18.12 && lng <= 18.23) {
+    return 'Lecce';
+  }
+
+  const cleanPart = (indirizzo || '')
+    .split(',')
+    .map(p => p.trim())
+    .find(p => p.length > 2 && !p.startsWith('Posizione'));
+
+  if (cleanPart) return cleanPart;
+
+  return 'Galatina'; // Default di zona
+}
+
+// Pre-carica il modello di Computer Vision in background all'avvio
+(async function loadVisionAI() {
+  if (window.cocoSsd) {
+    try {
+      visionModel = await cocoSsd.load();
+      console.log("SecurCity Vision AI pronta.");
+    } catch (e) {
+      console.warn("Vision AI fallback attivo.");
+    }
+  }
+})();
 
 document.addEventListener('DOMContentLoaded', async () => {
   if (window.lucide) {
@@ -30,10 +104,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   initMap();
+  renderMunicipalityAlerts();
   await checkAuthSession();
   await fetchReports();
 
-  // Close desktop dropdowns when clicking outside
   document.addEventListener('click', (e) => {
     const btnApp = document.getElementById('btnAppMenu');
     const menuApp = document.getElementById('appDropdownMenu');
@@ -48,13 +122,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Re-check map sizing on window resize / orientation change
   window.addEventListener('resize', () => {
     if (state.map) state.map.invalidateSize();
   });
 
-  setInterval(fetchReports, 10000);
+  // Rimuove automaticamente i pericoli scaduti e aggiorna la lista ogni 10 secondi
+  setInterval(() => {
+    pruneExpiredReports();
+    fetchReports();
+  }, 10000);
 });
+
+function pruneExpiredReports() {
+  const now = Date.now();
+  const initialLen = state.reports.length;
+  state.reports = state.reports.filter(r => {
+    if (!r.expires_at) return true;
+    const rem = Math.floor((r.expires_at - now) / 1000);
+    r.seconds_left = Math.max(0, rem);
+    return rem > 0;
+  });
+
+  if (state.reports.length !== initialLen) {
+    renderMapMarkers();
+    renderHazardsList();
+  }
+}
 
 // ------------------- OPENSTREETMAP (ZERO API KEY) ------------------- //
 
@@ -62,9 +155,8 @@ function initMap() {
   state.map = L.map('map', {
     zoomControl: false,
     attributionControl: false
-  }).setView([state.userLocation.lat, state.userLocation.lng], 14);
+  }).setView([state.userLocation.lat, state.userLocation.lng], 15);
 
-  // 100% Free OpenStreetMap tile server - ZERO API KEY REQUIRED
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     subdomains: ['a', 'b', 'c']
@@ -76,17 +168,58 @@ function initMap() {
     state.map.invalidateSize();
   }, 300);
 
-  // Click on map to pick coordinates
+  // Rileva posizione GPS reale del dispositivo (se autorizzata)
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        state.realGpsLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        state.userLocation.lat = pos.coords.latitude;
+        state.userLocation.lng = pos.coords.longitude;
+        updateUserLocationMarker();
+        state.map.setView([pos.coords.latitude, pos.coords.longitude], 16);
+      },
+      () => {
+        state.realGpsLocation = { lat: state.userLocation.lat, lng: state.userLocation.lng };
+      },
+      { enableHighAccuracy: true, timeout: 5000 }
+    );
+  }
+
+  // Click sulla mappa: consente di affinare il punto SOLO entro 100m dalla propria posizione reale
   state.map.on('click', (e) => {
+    const dist = getDistanceMeters(
+      state.realGpsLocation.lat,
+      state.realGpsLocation.lng,
+      e.latlng.lat,
+      e.latlng.lng
+    );
+
+    if (dist > 100) {
+      alert(`⛔ Blocco Geografico (Max 100m): il punto selezionato dista ${Math.round(dist)}m dalla tua posizione reale. Puoi segnalare solo entro 100m da dove ti trovi!`);
+      return;
+    }
+
     state.userLocation.lat = e.latlng.lat;
     state.userLocation.lng = e.latlng.lng;
     updateUserLocationMarker();
 
     const addrInput = document.getElementById('reportIndirizzo');
     if (addrInput) {
-      addrInput.value = `Posizione: ${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)} (Puglia)`;
+      addrInput.value = `Posizione verificata (${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)})`;
     }
   });
+}
+
+function getDistanceMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371e3; // raggio terrestre in metri
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 function updateUserLocationMarker() {
@@ -94,7 +227,6 @@ function updateUserLocationMarker() {
     state.map.removeLayer(state.proximityCircle);
   }
 
-  // Draw 200m proximity radar circle
   state.proximityCircle = L.circle([state.userLocation.lat, state.userLocation.lng], {
     color: '#0099FF',
     fillColor: '#0099FF',
@@ -112,7 +244,7 @@ function updateUserLocationMarker() {
           🚲
         </div>
         <div class="absolute -bottom-4 whitespace-nowrap bg-neutral-900 text-white text-[8px] font-bold px-1 rounded shadow">
-          ${state.currentUser ? state.currentUser.nome : "Giulia"}
+          ${state.currentUser ? state.currentUser.nome : "La mia posizione"}
         </div>
       </div>
     `,
@@ -128,24 +260,47 @@ function updateUserLocationMarker() {
 }
 
 function centerUserLocation() {
-  state.map.flyTo([state.userLocation.lat, state.userLocation.lng], 15, { duration: 0.8 });
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition((pos) => {
+      state.realGpsLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      state.userLocation.lat = pos.coords.latitude;
+      state.userLocation.lng = pos.coords.longitude;
+      updateUserLocationMarker();
+      state.map.flyTo([pos.coords.latitude, pos.coords.longitude], 15, { duration: 0.8 });
+    }, () => {
+      state.userLocation.lat = state.realGpsLocation.lat;
+      state.userLocation.lng = state.realGpsLocation.lng;
+      updateUserLocationMarker();
+      state.map.flyTo([state.userLocation.lat, state.userLocation.lng], 15, { duration: 0.8 });
+    });
+  } else {
+    state.map.flyTo([state.userLocation.lat, state.userLocation.lng], 15, { duration: 0.8 });
+  }
 }
 
 function setRadius(meters) {
-  state.selectedRadius = meters;
-  ['200', '500', '1500'].forEach(r => {
-    const btn = document.getElementById(`radBtn${r}`);
-    if (btn) {
-      if (parseInt(r) === meters) {
-        btn.className = "px-2 py-1 rounded bg-neutral-900 text-white font-bold text-[10px] transition";
-      } else {
-        btn.className = "px-2 py-1 rounded text-neutral-600 hover:bg-neutral-100 text-[10px] transition";
-      }
-    }
-  });
+  state.selectedRadius = 100;
+  const btn = document.getElementById('radBtn100');
+  if (btn) {
+    btn.className = "px-2.5 py-1 rounded bg-neutral-900 text-white font-bold text-[10px] transition";
+  }
 
   updateUserLocationMarker();
   renderHazardsList();
+}
+
+function checkRouteInputs() {
+  const startVal = (document.getElementById('routeStart')?.value || '').trim();
+  const endVal = (document.getElementById('routeEnd')?.value || '').trim();
+  const actionBox = document.getElementById('safeRouteActionContainer');
+
+  if (!actionBox) return;
+
+  if (startVal.length > 0 && endVal.length > 0) {
+    actionBox.classList.remove('hidden');
+  } else {
+    actionBox.classList.add('hidden');
+  }
 }
 
 function swapRouteEndpoints() {
@@ -155,33 +310,111 @@ function swapRouteEndpoints() {
     const tmp = start.value;
     start.value = end.value;
     end.value = tmp;
+    checkRouteInputs();
   }
 }
 
-function calculateSafeRoute() {
+function clearSafeRoute() {
   if (state.safeRoutePolyline) {
     state.map.removeLayer(state.safeRoutePolyline);
+    state.safeRoutePolyline = null;
+  }
+  const summary = document.getElementById('safeRouteSummaryBox');
+  if (summary) summary.classList.add('hidden');
+}
+
+async function resolvePlaceCoords(queryText) {
+  const q = queryText.toLowerCase().trim();
+  if (q === 'la mia posizione' || q === 'posizione attuale' || q === 'gps') {
+    return { lat: state.userLocation.lat, lng: state.userLocation.lng, label: 'La mia posizione' };
   }
 
-  const lat = state.userLocation.lat;
-  const lng = state.userLocation.lng;
-  const routePoints = [
-    [lat, lng],
-    [lat + 0.003, lng + 0.003],
-    [lat + 0.006, lng + 0.002],
-    [lat + 0.010, lng - 0.001]
-  ];
+  const minLng = state.userLocation.lng - 0.3;
+  const maxLat = state.userLocation.lat + 0.3;
+  const maxLng = state.userLocation.lng + 0.3;
+  const minLat = state.userLocation.lat - 0.3;
+  const viewbox = `${minLng},${maxLat},${maxLng},${minLat}`;
 
-  state.safeRoutePolyline = L.polyline(routePoints, {
-    color: '#0099FF',
-    weight: 5,
-    opacity: 0.9,
-    lineCap: 'round'
-  }).addTo(state.map);
+  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&viewbox=${viewbox}&q=${encodeURIComponent(queryText)}`;
+  const res = await fetch(url);
+  const data = await res.json();
+  if (data && data.length > 0) {
+    return {
+      lat: parseFloat(data[0].lat),
+      lng: parseFloat(data[0].lon),
+      label: data[0].display_name.split(',')[0]
+    };
+  }
+  return null;
+}
 
-  state.map.fitBounds(state.safeRoutePolyline.getBounds(), { padding: [40, 40] });
+async function calculateSafeRoute() {
+  const startText = (document.getElementById('routeStart')?.value || '').trim();
+  const endText = (document.getElementById('routeEnd')?.value || '').trim();
 
-  alert("Percorso Sicuro Calcolato: Deviazione attiva per evitare l'incidente!");
+  if (!startText || !endText) {
+    alert("Inserisci sia la partenza che la destinazione!");
+    return;
+  }
+
+  clearSafeRoute();
+
+  try {
+    const startCoords = await resolvePlaceCoords(startText);
+    const endCoords = await resolvePlaceCoords(endText);
+
+    if (!startCoords || !endCoords) {
+      alert("Indirizzo non trovato sulla mappa. Prova a specificare meglio la via o il comune.");
+      return;
+    }
+
+    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${startCoords.lng},${startCoords.lat};${endCoords.lng},${endCoords.lat}?overview=full&geometries=geojson`;
+    const routeRes = await fetch(osrmUrl);
+    const routeData = await routeRes.json();
+
+    let latLngs = [];
+    let distanceKm = 0;
+    let durationMin = 0;
+
+    if (routeData.routes && routeData.routes.length > 0) {
+      const r = routeData.routes[0];
+      latLngs = r.geometry.coordinates.map(coord => [coord[1], coord[0]]);
+      distanceKm = (r.distance / 1000).toFixed(1);
+      durationMin = Math.max(1, Math.round(r.duration / 60));
+    } else {
+      latLngs = [
+        [startCoords.lat, startCoords.lng],
+        [endCoords.lat, endCoords.lng]
+      ];
+    }
+
+    state.safeRoutePolyline = L.polyline(latLngs, {
+      color: '#0099FF',
+      weight: 6,
+      opacity: 0.95,
+      lineCap: 'round',
+      lineJoin: 'round'
+    }).addTo(state.map);
+
+    state.map.fitBounds(state.safeRoutePolyline.getBounds(), { padding: [50, 50] });
+
+    const nearbyHazards = state.reports.filter(rep =>
+      latLngs.some(pt => getDistanceMeters(pt[0], pt[1], rep.lat, rep.lng) <= 100)
+    );
+
+    const summaryBox = document.getElementById('safeRouteSummaryBox');
+    const summaryText = document.getElementById('safeRouteSummaryText');
+    if (summaryBox && summaryText) {
+      summaryBox.classList.remove('hidden');
+      summaryText.innerHTML = nearbyHazards.length > 0
+        ? `<b>${startCoords.label} → ${endCoords.label}</b> (${distanceKm} km · ~${durationMin} min). ⚠️ Rilevati <b>${nearbyHazards.length} pericoli</b> nel raggio di 100m lungo la tratta.`
+        : `<b>${startCoords.label} → ${endCoords.label}</b> (${distanceKm} km · ~${durationMin} min). ✅ Tratta libera da pericoli segnalati.`;
+    }
+
+    if (window.lucide) lucide.createIcons();
+  } catch (err) {
+    alert("Errore nel calcolo del percorso sicuro. Riprova tra un attimo.");
+  }
 }
 
 // ------------------- MOBILE NAVIGATION & BOTTOM SHEET ------------------- //
@@ -189,10 +422,11 @@ function calculateSafeRoute() {
 function mobileSwitchTab(tab) {
   state.activeTab = tab;
 
-  const tabs = ['mappa', 'notifiche-pericoli', 'istruzioni', 'legenda'];
+  const tabs = ['mappa', 'notifiche-pericoli', 'notifiche-comune', 'istruzioni', 'legenda'];
   const mNavMap = {
     'mappa': document.getElementById('mNavMappa'),
     'notifiche-pericoli': document.getElementById('mNavPericoli'),
+    'notifiche-comune': document.getElementById('mNavComune'),
     'istruzioni': document.getElementById('mNavIstruzioni'),
     'legenda': document.getElementById('mNavLegenda')
   };
@@ -200,13 +434,13 @@ function mobileSwitchTab(tab) {
   tabs.forEach(t => {
     const btn = mNavMap[t];
     if (btn) {
-      btn.className = "flex flex-col items-center py-1 px-3 text-neutral-400 font-medium transition relative";
+      btn.className = "flex flex-col items-center py-1 px-2 text-neutral-400 font-medium transition relative";
     }
   });
 
   const activeBtn = mNavMap[tab];
   if (activeBtn) {
-    activeBtn.className = "flex flex-col items-center py-1 px-3 text-neutral-900 font-bold transition relative";
+    activeBtn.className = "flex flex-col items-center py-1 px-2 text-neutral-900 font-bold transition relative";
   }
 
   const sheet = document.getElementById('mobileBottomSheet');
@@ -217,60 +451,52 @@ function mobileSwitchTab(tab) {
     closeMobileBottomSheet();
     centerUserLocation();
   } else if (tab === 'notifiche-pericoli') {
-    sheetTitle.textContent = "Notifiche Pericoli";
+    sheetTitle.textContent = "Pericoli Attivi in Zona";
     sheetContent.innerHTML = generateHazardsListHtml();
     sheet.classList.remove('hidden');
+  } else if (tab === 'notifiche-comune') {
+    sheetTitle.textContent = "Notifiche Inoltrate al Comune";
+    sheetContent.innerHTML = generateMunicipalityListHtml();
+    sheet.classList.remove('hidden');
   } else if (tab === 'istruzioni') {
-    sheetTitle.textContent = "Istruzioni di guida e sicurezza";
+    sheetTitle.textContent = "Guida dell'App · Come Funziona";
     sheetContent.innerHTML = `
       <div class="space-y-2.5 text-xs text-neutral-600">
         <div class="p-3 bg-neutral-50 rounded-xl border border-neutral-200">
-          <h4 class="font-bold text-neutral-900 mb-0.5">01. Segnala in 3 secondi</h4>
-          <p class="text-[11px]">Tocca il tasto rosso della matita. Carica una foto reale e invia: il Bot AI esegue la convalida istantanea.</p>
-        </div>
-        <div class="p-3 bg-neutral-50 rounded-xl border border-neutral-200">
-          <h4 class="font-bold text-neutral-900 mb-0.5">02. Allerte di prossimità a 200m</h4>
-          <p class="text-[11px]">Avviso acustico e visivo per chi è in bici o a piedi in avvicinamento entro 200 metri.</p>
-        </div>
-        <div class="p-3 bg-neutral-50 rounded-xl border border-neutral-200">
-          <h4 class="font-bold text-neutral-900 mb-0.5">03. Rimozione collaborativa</h4>
-          <p class="text-[11px]">Due voti su «Non c'è più» rimuovono subito il pericolo dalla mappa.</p>
-        </div>
-        <div class="p-3 bg-red-50 rounded-xl border border-red-200 text-red-800">
-          <h4 class="font-bold text-red-900 mb-0.5">Emergenze gravi: chiama il 112</h4>
-          <p class="text-[11px]">Contatta sempre il 112 per pericoli critici o feriti.</p>
+          <ul class="space-y-2 text-[11px] list-disc pl-4">
+            <li><strong class="text-neutral-900">Navigazione:</strong> Inserisci la tua destinazione per calcolare il percorso migliore.</li>
+            <li><strong class="text-neutral-900">Segnala un pericolo:</strong> Tocca il pulsante di segnalazione per avvisare gli utenti.</li>
+            <li><strong class="text-neutral-900">Parametri dell'evento:</strong> Scegli il raggio, la gravità e scatta una foto live.</li>
+            <li><strong class="text-neutral-900">Controllo Anti-IA:</strong> Un sistema di riconoscimento verifica l'autenticità dell'immagine.</li>
+          </ul>
         </div>
       </div>
     `;
     sheet.classList.remove('hidden');
   } else if (tab === 'legenda') {
-    sheetTitle.textContent = "Legenda Codici & Ban";
+    sheetTitle.textContent = "Legenda Livelli di Gravità";
     sheetContent.innerHTML = `
       <div class="space-y-2.5 text-xs">
-        <div class="p-2.5 rounded-xl border border-red-200 bg-red-50/80">
-          <div class="flex items-center gap-2 mb-1">
-            <span class="w-3 h-3 rounded-full bg-severity-red"></span>
-            <span class="font-bold text-red-900 text-xs">CODICE ROSSO (Grave)</span>
+        <div class="p-2.5 rounded-xl border border-yellow-200 bg-yellow-50/80 flex items-start gap-2.5">
+          <span class="w-4 h-4 rounded-full bg-severity-yellow shrink-0 mt-0.5"></span>
+          <div>
+            <h5 class="font-bold text-yellow-900 text-xs">Gravità Bassa (Giallo · Scade dopo 3h)</h5>
+            <p class="text-[11px] text-yellow-800 leading-tight mt-0.5">Ostacoli minori o disagi temporanei.</p>
           </div>
-          <p class="text-[11px] text-red-700 leading-tight">Pericolo immediato per la vita. Notifica prioritari e 112.</p>
         </div>
-        <div class="p-2.5 rounded-xl border border-amber-200 bg-amber-50/80">
-          <div class="flex items-center gap-2 mb-1">
-            <span class="w-3 h-3 rounded-full bg-severity-orange"></span>
-            <span class="font-bold text-amber-900 text-xs">CODICE ARANCIONE (Medio)</span>
+        <div class="p-2.5 rounded-xl border border-amber-200 bg-amber-50/80 flex items-start gap-2.5">
+          <span class="w-4 h-4 rounded-full bg-severity-orange shrink-0 mt-0.5"></span>
+          <div>
+            <h5 class="font-bold text-amber-900 text-xs">Gravità Media (Arancione · Scade dopo 12h)</h5>
+            <p class="text-[11px] text-amber-800 leading-tight mt-0.5">Situazioni di pericolo moderato.</p>
           </div>
-          <p class="text-[11px] text-amber-800 leading-tight">Rischio moderato (allagamenti, ostacoli carreggiata). Richiede cautela.</p>
         </div>
-        <div class="p-2.5 rounded-xl border border-yellow-200 bg-yellow-50/80">
-          <div class="flex items-center gap-2 mb-1">
-            <span class="w-3 h-3 rounded-full bg-severity-yellow"></span>
-            <span class="font-bold text-yellow-900 text-xs">CODICE GIALLO (Basso)</span>
+        <div class="p-2.5 rounded-xl border border-red-200 bg-red-50/80 flex items-start gap-2.5">
+          <span class="w-4 h-4 rounded-full bg-severity-red shrink-0 mt-0.5"></span>
+          <div>
+            <h5 class="font-bold text-red-900 text-xs">Gravità Alta (Rosso · Scade dopo 24h)</h5>
+            <p class="text-[11px] text-red-700 leading-tight mt-0.5">Emergenze gravi e ad alto rischio.</p>
           </div>
-          <p class="text-[11px] text-yellow-800 leading-tight">Disagio lieve (buche, rami caduti).</p>
-        </div>
-        <div class="p-2.5 rounded-xl border border-neutral-200 bg-neutral-50 text-neutral-700">
-          <span class="font-bold text-neutral-900 block mb-0.5 text-xs">Regola Anti-Abuso Bot AI:</span>
-          <p class="text-[11px] leading-tight">3 foto false = Ban 24h automatico.</p>
         </div>
       </div>
     `;
@@ -318,16 +544,18 @@ function switchTab(tab) {
     toggleDesktopCardCollapse();
   }
 
-  const tabs = ['mappa', 'notifiche-pericoli', 'istruzioni', 'legenda'];
+  const tabs = ['mappa', 'notifiche-pericoli', 'notifiche-comune', 'istruzioni', 'legenda'];
   const tabBtnMap = {
     'mappa': document.getElementById('tabBtnMappa'),
     'notifiche-pericoli': document.getElementById('tabBtnPericoli'),
+    'notifiche-comune': document.getElementById('tabBtnComune'),
     'istruzioni': document.getElementById('tabBtnIstruzioni'),
     'legenda': document.getElementById('tabBtnLegenda')
   };
   const contentMap = {
     'mappa': document.getElementById('desktopContentMappa'),
     'notifiche-pericoli': document.getElementById('desktopContentPericoli'),
+    'notifiche-comune': document.getElementById('desktopContentComune'),
     'istruzioni': document.getElementById('desktopContentIstruzioni'),
     'legenda': document.getElementById('desktopContentLegenda')
   };
@@ -336,7 +564,7 @@ function switchTab(tab) {
     const btn = tabBtnMap[t];
     const content = contentMap[t];
     if (btn) {
-      btn.className = "flex-1 py-1.5 px-2 rounded-lg text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 transition text-center flex items-center justify-center gap-1 text-[11px] font-bold";
+      btn.className = "flex-1 py-1.5 px-1 rounded-lg text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 transition text-center flex items-center justify-center gap-1 text-[10px] font-bold";
     }
     if (content) {
       content.classList.add('hidden');
@@ -347,16 +575,18 @@ function switchTab(tab) {
   const activeContent = contentMap[tab];
 
   if (activeBtn) {
-    activeBtn.className = "flex-1 py-1.5 px-2 rounded-lg bg-neutral-900 text-white shadow-xs transition text-center flex items-center justify-center gap-1 text-[11px] font-bold";
+    activeBtn.className = "flex-1 py-1.5 px-1 rounded-lg bg-neutral-900 text-white shadow-xs transition text-center flex items-center justify-center gap-1 text-[10px] font-bold";
   }
   if (activeContent) {
     activeContent.classList.remove('hidden');
   }
 
   if (tab === 'mappa') {
-    state.map.invalidateSize();
+    if (state.map) state.map.invalidateSize();
   } else if (tab === 'notifiche-pericoli') {
     renderHazardsList();
+  } else if (tab === 'notifiche-comune') {
+    renderMunicipalityAlerts();
   }
 
   if (window.lucide) lucide.createIcons();
@@ -673,13 +903,38 @@ async function fetchReports() {
     const res = await fetch(`/api/reports?lat=${state.userLocation.lat}&lng=${state.userLocation.lng}`);
     const data = await res.json();
     if (res.ok) {
-      state.reports = data.reports || [];
+      const now = Date.now();
+      const serverReports = (data.reports || []).map(r => {
+        const expectedMaxSeconds = getDurationBySeverity(r.severity);
+        const existing = state.reports.find(old => String(old.id) === String(r.id));
+        const expiresAt = existing?.expires_at || (now + (r.seconds_left && r.seconds_left <= expectedMaxSeconds ? r.seconds_left : expectedMaxSeconds) * 1000);
+        const secondsLeft = Math.max(0, Math.floor((expiresAt - now) / 1000));
+        return {
+          ...r,
+          expires_at: expiresAt,
+          seconds_left: secondsLeft
+        };
+      }).filter(r => r.seconds_left > 0);
+
+      state.reports = serverReports;
       renderMapMarkers();
       renderHazardsList();
+      syncMunicipalityAlerts(state.reports);
     }
   } catch (err) {
     console.error("Failed fetching reports:", err);
   }
+}
+
+function getCategoryIconUrl(cat) {
+  const c = cat.toLowerCase();
+  if (c.includes('incidente')) return '/icons/incidente.png';
+  if (c.includes('allag')) return '/icons/allagamento.png';
+  if (c.includes('palo')) return '/icons/palo.png';
+  if (c.includes('rissa')) return '/icons/rissa.png';
+  if (c.includes('molest')) return '/icons/gente che disturba.png';
+  if (c.includes('manifest')) return '/icons/fastidio.png';
+  return '/icons/ostacolo.png';
 }
 
 function renderMapMarkers() {
@@ -694,7 +949,7 @@ function renderMapMarkers() {
   if (labelCount) labelCount.textContent = `${state.reports.length} segnalazioni`;
 
   state.reports.forEach(r => {
-    let pinColor = '#EAB308'; // Giallo
+    let pinColor = '#EAB308';
     let pulseClass = '';
     if (r.severity === 'ROSSO') {
       pinColor = '#EF4444';
@@ -703,17 +958,20 @@ function renderMapMarkers() {
       pinColor = '#F59E0B';
     }
 
+    const iconUrl = getCategoryIconUrl(r.categoria);
+    const timeFormatted = formatRemainingTime(r.seconds_left);
+
     const icon = L.divIcon({
       className: 'custom-hazard-pin',
       html: `
         <div class="relative flex items-center justify-center">
-          <div class="w-8 h-8 rounded-full flex items-center justify-center text-white shadow-xl ${pulseClass}" style="background-color: ${pinColor}">
-            ${getCategoryIcon(r.categoria)}
+          <div class="w-11 h-11 rounded-full overflow-hidden border-2 border-white shadow-xl bg-white ${pulseClass}" style="box-shadow: 0 0 0 2px ${pinColor};">
+            <img src="${iconUrl}" alt="${r.categoria}" class="w-full h-full object-cover" />
           </div>
         </div>
       `,
-      iconSize: [32, 32],
-      iconAnchor: [16, 16]
+      iconSize: [44, 44],
+      iconAnchor: [22, 22]
     });
 
     const marker = L.marker([r.lat, r.lng], { icon }).addTo(state.map);
@@ -724,9 +982,12 @@ function renderMapMarkers() {
           <span class="px-2 py-0.5 rounded text-[10px] font-black text-white" style="background-color: ${pinColor}">
             CODICE ${r.severity}
           </span>
-          <span class="text-[10px] text-neutral-400 font-bold">${Math.round(r.seconds_left / 60)} min</span>
+          <span class="text-[10px] text-neutral-400 font-bold">Scade in ${timeFormatted}</span>
         </div>
-        <h4 class="font-extrabold text-xs text-neutral-900 mb-0.5 uppercase">${r.categoria}</h4>
+        <div class="flex items-center gap-2 my-1">
+          <img src="${iconUrl}" class="w-7 h-7 rounded-full object-cover border border-neutral-200 shrink-0" />
+          <h4 class="font-extrabold text-xs text-neutral-900 uppercase">${r.categoria}</h4>
+        </div>
         <p class="text-neutral-600 mb-2 leading-tight text-[11px]">${r.descrizione}</p>
         
         ${r.foto_url ? `<img src="${r.foto_url}" class="w-full h-20 object-cover rounded-xl mb-2">` : ''}
@@ -751,16 +1012,6 @@ function renderMapMarkers() {
   });
 }
 
-function getCategoryIcon(cat) {
-  const c = cat.toLowerCase();
-  if (c.includes('incidente')) return '🚗';
-  if (c.includes('allag')) return '🌊';
-  if (c.includes('palo')) return '⚡';
-  if (c.includes('rissa')) return '🥊';
-  if (c.includes('molest')) return '⚠️';
-  return '🚧';
-}
-
 function generateHazardsListHtml() {
   if (state.reports.length === 0) {
     return `
@@ -780,6 +1031,7 @@ function generateHazardsListHtml() {
     }
 
     const isNearby = r.distance_meters !== null && r.distance_meters <= state.selectedRadius;
+    const timeFormatted = formatRemainingTime(r.seconds_left);
 
     return `
       <div class="p-3 rounded-2xl border border-neutral-200 hover:border-neutral-300 bg-white transition shadow-xs cursor-pointer" onclick="panToHazard(${r.lat}, ${r.lng}, '${r.id}')">
@@ -796,7 +1048,7 @@ function generateHazardsListHtml() {
         <p class="text-[11px] text-neutral-600 line-clamp-2 mb-2 leading-relaxed">${r.descrizione}</p>
 
         <div class="flex items-center justify-between pt-2 border-t border-neutral-100 text-xs">
-          <span class="text-[10px] text-neutral-400">${Math.round(r.seconds_left / 60)} min rimasti</span>
+          <span class="text-[10px] text-neutral-400">Rimozione tra ${timeFormatted}</span>
           <div class="flex items-center gap-1.5">
             <button onclick="event.stopPropagation(); confirmHazard('${r.id}')" class="px-2 py-1 rounded-lg bg-neutral-100 hover:bg-neutral-200 text-neutral-700 font-bold text-[10px]">
               👍 C'è (${r.confirm_count})
@@ -823,37 +1075,357 @@ function renderHazardsList() {
   if (window.lucide) lucide.createIcons();
 }
 
+// ------------------- MOTORE NOTIFICHE COMUNE (> 3 SEGNALAZIONI IDENTICHE NELLO STESSO COMUNE) ------------------- //
+
+function syncMunicipalityAlerts(currentReports) {
+  let history = JSON.parse(localStorage.getItem('securcity_reports_history') || '[]');
+
+  currentReports.forEach(rep => {
+    if (!history.some(h => String(h.id) === String(rep.id))) {
+      const comuneName = resolveMunicipalityName(rep.lat, rep.lng, rep.indirizzo);
+      history.push({
+        id: rep.id,
+        categoria: rep.categoria.toLowerCase().trim(),
+        comune: comuneName,
+        lat: rep.lat,
+        lng: rep.lng,
+        indirizzo: rep.indirizzo || `Zona ${comuneName}`,
+        descrizione: rep.descrizione,
+        severity: rep.severity,
+        timestamp: rep.timestamp || new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })
+      });
+    }
+  });
+
+  localStorage.setItem('securcity_reports_history', JSON.stringify(history));
+
+  const clusters = [];
+
+  history.forEach(item => {
+    const itemComune = item.comune || resolveMunicipalityName(item.lat, item.lng, item.indirizzo);
+
+    // Raggruppa SOLO segnalazioni della stessa categoria, nello STESSO COMUNE e entro 150m
+    const existingCluster = clusters.find(c =>
+      c.categoria === item.categoria &&
+      c.comune.toLowerCase() === itemComune.toLowerCase() &&
+      getDistanceMeters(c.lat, c.lng, item.lat, item.lng) <= 150
+    );
+
+    if (existingCluster) {
+      existingCluster.count += 1;
+      existingCluster.lastUpdate = item.timestamp || new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+      existingCluster.latestDesc = item.descrizione;
+      if (item.severity === 'ROSSO') existingCluster.severity = 'ROSSO';
+    } else {
+      clusters.push({
+        id: `comune_${itemComune.toLowerCase()}_${item.categoria}_${item.lat.toFixed(4)}_${item.lng.toFixed(4)}`,
+        categoria: item.categoria,
+        comune: itemComune,
+        lat: item.lat,
+        lng: item.lng,
+        indirizzo: item.indirizzo,
+        latestDesc: item.descrizione,
+        severity: item.severity,
+        count: 1,
+        lastUpdate: item.timestamp || new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })
+      });
+    }
+  });
+
+  // Filtra SOLO i pericoli con PIÙ DI 3 segnalazioni identiche nello stesso comune (> 3, quindi da 4 in poi)
+  const escalated = clusters.filter(c => c.count > 3);
+
+  const prevAlerts = state.municipalityAlerts || [];
+  escalated.forEach(alertItem => {
+    const old = prevAlerts.find(p => p.id === alertItem.id);
+    if (!old) {
+      showProximityAlert(
+        `🏛️ Segnalazione Inviata al Comune di ${alertItem.comune}!`,
+        `Superate 3 segnalazioni identiche per "${alertItem.categoria.toUpperCase()}" a ${alertItem.comune} (${alertItem.count} totali).`
+      );
+    } else if (alertItem.count > old.count) {
+      showProximityAlert(
+        `🏛️ Aggiornamento Comune di ${alertItem.comune}`,
+        `Nuova ricorrenza per "${alertItem.categoria.toUpperCase()}" a ${alertItem.comune} (aggiornato a ${alertItem.count} segnalazioni).`
+      );
+    }
+  });
+
+  state.municipalityAlerts = escalated;
+  localStorage.setItem('securcity_comune_alerts', JSON.stringify(escalated));
+  renderMunicipalityAlerts();
+}
+
+function generateMunicipalityListHtml() {
+  const alerts = state.municipalityAlerts || [];
+  if (alerts.length === 0) {
+    return `
+      <div class="text-center py-6 text-neutral-400 text-xs bg-neutral-50 rounded-2xl border border-neutral-200/70 p-4">
+        <p class="font-bold text-neutral-700 mb-1">Nessuna criticità ricorrente</p>
+        <p class="text-[11px] leading-relaxed">Quando un pericolo viene segnalato <b>più di 3 volte</b> nello stesso Comune, compare qui ed è inoltrato all'Ufficio Tecnico competente.</p>
+      </div>
+    `;
+  }
+
+  return alerts.map(a => {
+    const iconUrl = getCategoryIconUrl(a.categoria);
+    const comuneLabel = a.comune || resolveMunicipalityName(a.lat, a.lng, a.indirizzo);
+    return `
+      <div class="p-3 rounded-2xl border-2 border-blue-200 bg-blue-50/40 hover:bg-blue-50 transition shadow-xs cursor-pointer" onclick="panToHazard(${a.lat}, ${a.lng}, '')">
+        <div class="flex items-center justify-between mb-1.5">
+          <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-blue-600 text-white flex items-center gap-1">
+            🏛️ Comune di ${comuneLabel}
+          </span>
+          <span class="text-[10px] font-black text-red-600 bg-red-100 px-2 py-0.5 rounded-full">
+            ${a.count} segnalazioni
+          </span>
+        </div>
+
+        <div class="flex items-center gap-2 my-1">
+          <img src="${iconUrl}" class="w-7 h-7 rounded-full object-cover border border-blue-200 shrink-0" />
+          <div>
+            <h4 class="font-extrabold text-xs text-neutral-900 uppercase">${a.categoria}</h4>
+            <span class="text-[10px] text-neutral-500 block">${a.indirizzo}</span>
+          </div>
+        </div>
+
+        <p class="text-[11px] text-neutral-700 mt-1 mb-2 leading-snug">${a.latestDesc}</p>
+
+        <div class="pt-1.5 border-t border-blue-200/60 flex items-center justify-between text-[10px] text-blue-900 font-semibold">
+          <span>Stato: Presa in carico (${comuneLabel})</span>
+          <span>Agg. ${a.lastUpdate}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderMunicipalityAlerts() {
+  const count = (state.municipalityAlerts || []).length;
+
+  const badgeDesk = document.getElementById('badgeComuneCount');
+  if (badgeDesk) badgeDesk.textContent = count;
+
+  const badgeMob = document.getElementById('mBadgeComune');
+  if (badgeMob) badgeMob.textContent = count;
+
+  const label = document.getElementById('comuneCountLabel');
+  if (label) label.textContent = `${count} criticità`;
+
+  const container = document.getElementById('comuneListContainer');
+  if (container) container.innerHTML = generateMunicipalityListHtml();
+
+  const sheetContent = document.getElementById('mobileSheetContent');
+  if (sheetContent && state.activeTab === 'notifiche-comune') {
+    sheetContent.innerHTML = generateMunicipalityListHtml();
+  }
+}
+
 function panToHazard(lat, lng, id) {
   closeMobileBottomSheet();
   state.map.flyTo([lat, lng], 17, { duration: 1 });
-  if (state.mapMarkers[id]) {
+  if (id && state.mapMarkers[id]) {
     setTimeout(() => state.mapMarkers[id].openPopup(), 1100);
   }
 }
 
-async function confirmHazard(id) {
-  try {
-    const res = await fetch(`/api/reports/${id}/confirm`, { method: 'POST' });
-    const data = await res.json();
-    if (res.ok) {
-      alert(data.message);
-      await fetchReports();
-    }
-  } catch (err) {}
+// ------------------- VERIFICA FOTOCAMERA PER VOTI (C'È / NON C'È PIÙ) ------------------- //
+
+let pendingVote = { id: null, type: null };
+let voteMediaStream = null;
+
+function confirmHazard(id) {
+  openVoteVerifyModal(id, 'confirm');
 }
 
-async function resolveHazard(id) {
+function resolveHazard(id) {
+  openVoteVerifyModal(id, 'resolve');
+}
+
+async function openVoteVerifyModal(id, type) {
+  if (!state.currentUser) {
+    alert("Accedi o registrati per votare una segnalazione!");
+    showAuthModal();
+    return;
+  }
+  if (state.currentUser.is_banned) {
+    alert("Il tuo account è sospeso per 24 ore!");
+    return;
+  }
+
+  pendingVote = { id, type };
+  const modal = document.getElementById('voteVerifyModal');
+  const header = document.getElementById('voteModalHeader');
+  const title = document.getElementById('voteModalTitle');
+  const desc = document.getElementById('voteModalDesc');
+  const feedback = document.getElementById('voteAiFeedback');
+  const video = document.getElementById('voteCameraStream');
+  const preview = document.getElementById('votePhotoPreview');
+  const btn = document.getElementById('btnCaptureVotePhoto');
+
+  feedback.classList.add('hidden');
+  preview.classList.add('hidden');
+  video.classList.remove('hidden');
+  btn.disabled = false;
+  btn.innerHTML = `<i data-lucide="aperture" class="w-4 h-4"></i> <span>Scatta Foto e Conferma Voto</span>`;
+
+  if (type === 'confirm') {
+    header.className = "p-3.5 bg-neutral-900 text-white flex items-center justify-between";
+    title.textContent = "Conferma «👍 C'è ancora»";
+    desc.textContent = "Inquadra il pericolo sul posto per confermare che è ancora presente.";
+  } else {
+    header.className = "p-3.5 bg-red-600 text-white flex items-center justify-between";
+    title.textContent = "Conferma «❌ Non c'è più»";
+    desc.textContent = "Inquadra la strada libera per dimostrare che il pericolo è stato rimosso.";
+  }
+
+  modal.classList.remove('hidden');
+  if (window.lucide) lucide.createIcons();
+
   try {
-    const res = await fetch(`/api/reports/${id}/resolve`, { method: 'POST' });
-    const data = await res.json();
-    if (res.ok) {
-      alert(data.message);
-      await fetchReports();
+    voteMediaStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" } },
+      audio: false
+    });
+    video.srcObject = voteMediaStream;
+  } catch (err) {
+    feedback.classList.remove('hidden');
+    feedback.className = "p-2.5 rounded-xl border text-xs bg-amber-50 border-amber-300 text-amber-800";
+    feedback.textContent = "Fotocamera non rilevata: usa i pulsanti Test qui sotto per la demo.";
+  }
+}
+
+function closeVoteVerifyModal() {
+  if (voteMediaStream) {
+    voteMediaStream.getTracks().forEach(t => t.stop());
+    voteMediaStream = null;
+  }
+  document.getElementById('voteVerifyModal').classList.add('hidden');
+}
+
+async function captureAndVerifyVote() {
+  const video = document.getElementById('voteCameraStream');
+  const canvas = document.getElementById('voteCameraCanvas');
+  const preview = document.getElementById('votePhotoPreview');
+  const feedback = document.getElementById('voteAiFeedback');
+  const btn = document.getElementById('btnCaptureVotePhoto');
+
+  if (!video || !video.videoWidth) {
+    alert("Attendi l'avvio della fotocamera o usa i tasti Test per la demo.");
+    return;
+  }
+
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+  const photoData = canvas.toDataURL('image/jpeg', 0.85);
+
+  if (voteMediaStream) {
+    voteMediaStream.getTracks().forEach(t => t.stop());
+    voteMediaStream = null;
+  }
+
+  video.classList.add('hidden');
+  preview.src = photoData;
+  preview.classList.remove('hidden');
+
+  btn.disabled = true;
+  btn.innerHTML = `<span>Verifica Bot AI in corso...</span>`;
+  feedback.classList.remove('hidden');
+  feedback.className = "p-2.5 rounded-xl border text-xs bg-neutral-100 border-neutral-300 text-neutral-800 animate-pulse";
+  feedback.innerHTML = `<b>Bot AI Vision:</b> Verifica corrispondenza con la segnalazione...`;
+
+  const targetReport = state.reports.find(r => String(r.id) === String(pendingVote.id));
+  const reportCategory = targetReport ? targetReport.categoria : 'incidente';
+  const reportDesc = targetReport ? targetReport.descrizione : 'Verifica strada sul posto';
+
+  let check = { valid: false, reason: "" };
+
+  if (pendingVote.type === 'confirm') {
+    check = await analyzeImageStrict(photoData, reportCategory, reportDesc);
+    if (!check.valid) {
+      check.reason = `La foto non corrisponde al pericolo segnalato (${reportCategory.toUpperCase()}): ${check.reason}`;
     }
-  } catch (err) {}
+  } else {
+    check = await analyzeImageStrict(photoData, 'ostacolo', 'Verifica strada libera da pericoli');
+    if (!check.valid && check.reason.includes("contesto stradale riconoscibile")) {
+      check = { valid: true, reason: "Carreggiata libera verificata in tempo reale." };
+    }
+  }
+
+  setTimeout(() => {
+    executeVoteResult(check.valid, check.reason);
+  }, 800);
+}
+
+function simulateVoteVerification(isValid) {
+  const feedback = document.getElementById('voteAiFeedback');
+  feedback.classList.remove('hidden');
+  feedback.className = "p-2.5 rounded-xl border text-xs bg-neutral-100 border-neutral-300 text-neutral-800 animate-pulse";
+  feedback.innerHTML = `<b>Bot AI Vision:</b> Controllo autenticità scena sul posto...`;
+
+  setTimeout(() => {
+    if (isValid) {
+      executeVoteResult(true, "Scena stradale verificata in tempo reale.");
+    } else {
+      executeVoteResult(false, "Foto non valida o non pertinente alla carreggiata (possibile abuso).");
+    }
+  }, 800);
+}
+
+async function executeVoteResult(isValid, reason) {
+  const feedback = document.getElementById('voteAiFeedback');
+  const btn = document.getElementById('btnCaptureVotePhoto');
+
+  if (!isValid) {
+    feedback.className = "p-2.5 rounded-xl border text-xs bg-red-50 border-red-300 text-red-900";
+    feedback.innerHTML = `
+      <div class="font-bold text-red-700 mb-0.5">⚠️ VOTO RESPINTO DAL BOT AI</div>
+      <p>${reason}</p>
+    `;
+    btn.disabled = false;
+    btn.innerHTML = `<i data-lucide="refresh-cw" class="w-4 h-4"></i> <span>Riprova Scatto</span>`;
+    if (window.lucide) lucide.createIcons();
+    return;
+  }
+
+  feedback.className = "p-2.5 rounded-xl border text-xs bg-emerald-50 border-emerald-300 text-emerald-800";
+  feedback.innerHTML = `
+    <div class="font-bold mb-0.5">✓ VERIFICA LIVE SUPERATA</div>
+    <p>${reason} Registrazione voto in corso...</p>
+  `;
+
+  const endpoint = pendingVote.type === 'confirm'
+    ? `/api/reports/${pendingVote.id}/confirm`
+    : `/api/reports/${pendingVote.id}/resolve`;
+
+  try {
+    const res = await fetch(endpoint, { method: 'POST' });
+    const data = await res.json();
+
+    setTimeout(async () => {
+      closeVoteVerifyModal();
+      await fetchReports();
+      if (res.ok && data.message) {
+        alert(data.message);
+      }
+    }, 1000);
+  } catch (err) {
+    closeVoteVerifyModal();
+  }
 }
 
 // ------------------- REPORT MODAL & BOT AI ------------------- //
+
+function selectCategory(cat, btnElement) {
+  state.currentCategory = cat;
+  document.querySelectorAll('.cat-btn').forEach(btn => {
+    btn.className = "cat-btn p-2 border border-neutral-200 hover:bg-neutral-50 rounded-xl text-center text-xs font-semibold transition";
+  });
+  if (btnElement) {
+    btnElement.className = "cat-btn active p-2 border-2 border-red-600 bg-red-50 text-red-700 rounded-xl text-center text-xs font-bold transition";
+  }
+}
 
 function openReportModal() {
   if (!state.currentUser) {
@@ -968,10 +1540,11 @@ function loadDemoPhoto(type) {
   }
 }
 
-function analyzeImageStrict(base64Img, category, description) {
+async function analyzeImageStrict(base64Img, category, description) {
   return new Promise((resolve) => {
     const img = new Image();
-    img.onload = () => {
+    img.crossOrigin = "anonymous";
+    img.onload = async () => {
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d');
       canvas.width = 100;
@@ -980,45 +1553,79 @@ function analyzeImageStrict(base64Img, category, description) {
       const data = ctx.getImageData(0, 0, 100, 100).data;
 
       let totalBrightness = 0;
-      let skinTonePixels = 0;
       let flatColorCount = 0;
-
       for (let i = 0; i < data.length; i += 4) {
         const r = data[i], g = data[i + 1], b = data[i + 2];
-        const brightness = (r + g + b) / 3;
-        totalBrightness += brightness;
-
+        totalBrightness += (r + g + b) / 3;
         if (Math.abs(r - g) < 10 && Math.abs(g - b) < 10) flatColorCount++;
-        if (r > 95 && g > 40 && b > 20 && r > g && r > b && Math.abs(r - g) > 15) {
-          skinTonePixels++;
+      }
+
+      if ((totalBrightness / 10000) < 30 || (totalBrightness / 10000) > 235 || (flatColorCount / 10000) > 0.85) {
+        resolve({ valid: false, reason: "Immagine ostruita, troppo buia o priva di dettagli (muro o obiettivo coperto)." });
+        return;
+      }
+
+      if (!visionModel && window.cocoSsd) {
+        try { visionModel = await cocoSsd.load(); } catch (e) {}
+      }
+
+      if (visionModel) {
+        const predictions = await visionModel.detect(img);
+        const detectedClasses = predictions.map(p => p.class);
+
+        const hasPerson = predictions.some(p => p.class === 'person' && p.score > 0.45);
+        const hasVehicle = predictions.some(p => ['car', 'truck', 'bus', 'motorcycle', 'bicycle'].includes(p.class) && p.score > 0.40);
+        const hasStreetElement = predictions.some(p => ['traffic light', 'stop sign', 'fire hydrant', 'bench'].includes(p.class));
+        const hasIndoorObject = predictions.some(p => ['chair', 'laptop', 'tv', 'keyboard', 'mouse', 'cell phone', 'book', 'bottle', 'cup', 'bed', 'couch'].includes(p.class) && p.score > 0.45);
+
+        if (hasIndoorObject) {
+          resolve({
+            valid: false,
+            reason: `Rilevato ambiente interno/oggetto personale (${detectedClasses.join(', ')}). Non è una strada!`
+          });
+          return;
         }
-      }
 
-      const pixelCount = 10000;
-      const avgBrightness = totalBrightness / pixelCount;
-      const flatRatio = flatColorCount / pixelCount;
-      const skinRatio = skinTonePixels / pixelCount;
+        if (hasPerson && !hasVehicle && category !== 'rissa' && category !== 'molestie') {
+          resolve({
+            valid: false,
+            reason: "Rilevata foto personale / selfie: nessuna corrispondenza con il pericolo '" + category.toUpperCase() + "'."
+          });
+          return;
+        }
 
-      const descLower = description.toLowerCase();
-      const validKeywords = ['auto', 'macchina', 'scontro', 'feriti', 'acqua', 'allag', 'palo', 'cavo', 'filo', 'buca', 'asfalto', 'strada', 'marciapiede', 'vetri', 'fumo', 'fuoco', 'aggressione', 'rissa', 'pericolo'];
-      const hasValidContext = validKeywords.some(k => descLower.includes(k)) && description.length >= 10;
+        if (category === 'incidente' && !hasVehicle) {
+          resolve({
+            valid: false,
+            reason: "Per segnalare un INCIDENTE è necessario inquadrare almeno un veicolo coinvolto sulla carreggiata."
+          });
+          return;
+        }
 
-      if (avgBrightness < 30 || avgBrightness > 235 || flatRatio > 0.85) {
-        resolve({ valid: false, reason: "Immagine ostruita, troppo buia o priva di dettagli ambientali (possibile muro o obiettivo coperto)." });
+        if ((category === 'rissa' || category === 'molestie') && !hasPerson) {
+          resolve({
+            valid: false,
+            reason: "Nessuna persona rilevata nella scena per la categoria '" + category.toUpperCase() + "'."
+          });
+          return;
+        }
+
+        if ((category === 'strada allagata' || category === 'palo pericolante' || category === 'ostacolo') && !hasVehicle && !hasStreetElement) {
+          resolve({
+            valid: false,
+            reason: `La foto non mostra un contesto stradale riconoscibile per '${category.toUpperCase()}'.`
+          });
+          return;
+        }
+
+        resolve({
+          valid: true,
+          reason: `Vision AI: verificati elementi coerenti (${detectedClasses.length > 0 ? detectedClasses.join(', ') : 'contesto stradale'}).`
+        });
         return;
       }
 
-      if (skinRatio > 0.35 && category !== 'rissa' && category !== 'molestie') {
-        resolve({ valid: false, reason: "Rilevato primo piano di volto o oggetto non pertinente alla carreggiata stradale." });
-        return;
-      }
-
-      if (!hasValidContext) {
-        resolve({ valid: false, reason: "La scena inquadrata non corrisponde a un pericolo stradale reale per la categoria '" + category.toUpperCase() + "'." });
-        return;
-      }
-
-      resolve({ valid: true, reason: "Scenario ambientale e metadati Live verificati con successo." });
+      resolve({ valid: false, reason: "Impossibile verificare la corrispondenza con il pericolo selezionato." });
     };
     img.src = base64Img;
   });
@@ -1040,11 +1647,61 @@ async function submitReport() {
   }
 
   btn.disabled = true;
-  btn.innerHTML = `<span>Analisi Bot AI in corso...</span>`;
+  btn.innerHTML = `<span>Verifica posizione (Max 100m)...</span>`;
+
+  let targetLat = state.userLocation.lat;
+  let targetLng = state.userLocation.lng;
+
+  if (indirizzo && !indirizzo.startsWith("Posizione verificata") && !indirizzo.startsWith("Posizione GPS")) {
+    try {
+      const cleanQuery = indirizzo.replace(/·/g, ',').replace(/\//g, ',');
+      const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=it&q=${encodeURIComponent(cleanQuery)}`);
+      const geoData = await geoRes.json();
+
+      if (geoData && geoData.length > 0) {
+        targetLat = parseFloat(geoData[0].lat);
+        targetLng = parseFloat(geoData[0].lon);
+      } else {
+        const fallbackCity = cleanQuery.split(',')[0].replace(/\(.*?\)/g, '').trim();
+        const fallbackRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=it&q=${encodeURIComponent(fallbackCity)}`);
+        const fallbackData = await fallbackRes.json();
+        if (fallbackData && fallbackData.length > 0) {
+          targetLat = parseFloat(fallbackData[0].lat);
+          targetLng = parseFloat(fallbackData[0].lon);
+        }
+      }
+    } catch (e) {
+      console.warn("Errore geocoding:", e);
+    }
+  }
+
+  const distFromReal = getDistanceMeters(
+    state.realGpsLocation.lat,
+    state.realGpsLocation.lng,
+    targetLat,
+    targetLng
+  );
+
+  if (distFromReal > 100) {
+    const distLabel = distFromReal >= 1000
+      ? `${(distFromReal / 1000).toFixed(1)} km`
+      : `${Math.round(distFromReal)} metri`;
+
+    alert(`⛔ Segnalazione Impedita: il punto indicato ("${indirizzo || 'punto selezionato'}") si trova a ${distLabel} dalla tua posizione reale.\n\nPuoi inviare segnalazioni SOLO entro 100 metri da dove ti trovi!`);
+
+    state.userLocation.lat = state.realGpsLocation.lat;
+    state.userLocation.lng = state.realGpsLocation.lng;
+    updateUserLocationMarker();
+
+    btn.disabled = false;
+    btn.innerHTML = `<i data-lucide="send" class="w-3.5 h-3.5"></i> <span>Invia Segnalazione</span>`;
+    if (window.lucide) lucide.createIcons();
+    return;
+  }
 
   box.classList.remove('hidden');
   box.className = "p-2.5 rounded-xl border text-xs bg-neutral-100 border-neutral-300 text-neutral-800 animate-pulse";
-  box.innerHTML = `<b>Bot AI Vision:</b> Scansione pixel, verifica live e coerenza semantica...`;
+  box.innerHTML = `<b>Bot AI Vision:</b> Scansione oggetti, verifica live e coerenza con il pericolo...`;
 
   let scenarioToSend = state.activeTestScenario;
   let localRejectReason = "";
@@ -1059,8 +1716,9 @@ async function submitReport() {
     }
   }
 
-  const sentLat = state.userLocation.lat + (Math.random() - 0.5) * 0.003;
-  const sentLng = state.userLocation.lng + (Math.random() - 0.5) * 0.003;
+  const sentLat = targetLat + (Math.random() - 0.5) * 0.00015;
+  const sentLng = targetLng + (Math.random() - 0.5) * 0.00015;
+  const resolvedComune = resolveMunicipalityName(sentLat, sentLng, indirizzo);
 
   try {
     const res = await fetch('/api/reports/create', {
@@ -1075,7 +1733,7 @@ async function submitReport() {
         foto: state.uploadedPhotoBase64,
         lat: sentLat,
         lng: sentLng,
-        indirizzo: indirizzo,
+        indirizzo: indirizzo || `Posizione verificata (${resolvedComune})`,
         test_scenario: scenarioToSend
       })
     });
@@ -1083,26 +1741,30 @@ async function submitReport() {
     const data = await res.json();
 
     if (res.ok && scenarioToSend !== 'fake_meme') {
+      const assignedSeverity = (data.codice_gravita || 'GIALLO').toUpperCase();
+      const durationSec = getDurationBySeverity(assignedSeverity);
+
       box.className = "p-2.5 rounded-xl border text-xs bg-emerald-50 border-emerald-300 text-emerald-800";
       box.innerHTML = `
         <div class="font-bold mb-0.5">✓ FOTO LIVE AUTENTICA APPROVATA</div>
-        <p><b>Codice:</b> ${data.codice_gravita} - ${data.dettagli}</p>
+        <p><b>Codice:</b> ${assignedSeverity} (Durata: ${formatRemainingTime(durationSec)}) · <b>Comune:</b> ${resolvedComune} — ${data.dettagli}</p>
       `;
 
       const nuovaSegnalazione = {
         id: data.report_id || Date.now().toString(),
         categoria: state.currentCategory,
         descrizione: desc,
-        severity: data.codice_gravita || 'ROSSO',
+        severity: assignedSeverity,
         lat: sentLat,
         lng: sentLng,
-        indirizzo: indirizzo,
+        indirizzo: indirizzo || `Sul posto (${resolvedComune})`,
         foto_url: state.uploadedPhotoBase64,
         ai_reason: data.dettagli || 'Convalidata da Bot AI Vision',
-        seconds_left: 3600,
+        expires_at: Date.now() + durationSec * 1000,
+        seconds_left: durationSec,
         confirm_count: 1,
         resolved_count: 0,
-        distance_meters: 50
+        distance_meters: Math.round(distFromReal)
       };
 
       setTimeout(async () => {
@@ -1112,14 +1774,19 @@ async function submitReport() {
         box.classList.add('hidden');
         btn.disabled = false;
         btn.innerHTML = `<i data-lucide="send" class="w-3.5 h-3.5"></i> <span>Invia Segnalazione</span>`;
-        
+
+        state.userLocation.lat = state.realGpsLocation.lat;
+        state.userLocation.lng = state.realGpsLocation.lng;
+        updateUserLocationMarker();
+
         await fetchReports();
-        if (!state.reports.some(r => r.id === nuovaSegnalazione.id)) {
+        if (!state.reports.some(r => String(r.id) === String(nuovaSegnalazione.id))) {
           state.reports.unshift(nuovaSegnalazione);
           renderMapMarkers();
           renderHazardsList();
+          syncMunicipalityAlerts(state.reports);
         }
-        state.map.flyTo([sentLat, sentLng], 16);
+
         checkAuthSession();
       }, 1500);
 
@@ -1149,20 +1816,21 @@ async function submitReport() {
     btn.innerHTML = `<i data-lucide="send" class="w-3.5 h-3.5"></i> <span>Invia Segnalazione</span>`;
   }
 }
-// ------------------- SIMULATORE GIULIA A 200M ------------------- //
+
+// ------------------- SIMULATORE GIULIA A 100M ------------------- //
 
 function simulateGiuliaApproach() {
   const targetHazard = state.reports.find(r => r.severity === 'ROSSO') || state.reports[0];
   if (!targetHazard) return;
 
-  state.userLocation.lat = targetHazard.lat - 0.0016;
+  state.userLocation.lat = targetHazard.lat - 0.00075;
   state.userLocation.lng = targetHazard.lng;
   updateUserLocationMarker();
-  state.map.flyTo([state.userLocation.lat, state.userLocation.lng], 16, { duration: 1 });
+  state.map.flyTo([state.userLocation.lat, state.userLocation.lng], 17, { duration: 1 });
 
   setTimeout(() => {
     showProximityAlert(
-      "Allerta Prossimità (A 180m)",
+      "Allerta Prossimità (A 85m)",
       `Rilevato ${targetHazard.categoria.toUpperCase()} in ${targetHazard.indirizzo}. Consigliata deviazione!`
     );
   }, 1200);
