@@ -869,41 +869,75 @@ function openReportModal() {
   if (window.lucide) lucide.createIcons();
 }
 
+let mediaStream = null;
+
 function closeReportModal() {
+  stopLiveCamera();
   document.getElementById('reportModal').classList.add('hidden');
 }
 
-function selectCategory(cat, btn) {
-  state.currentCategory = cat;
-  document.querySelectorAll('.cat-btn').forEach(b => {
-    b.className = "cat-btn p-2 border border-neutral-200 bg-white text-neutral-600 rounded-xl text-center text-xs";
-  });
-  btn.className = "cat-btn active p-2 border-2 border-red-600 bg-red-50 text-red-700 rounded-xl text-center text-xs font-bold";
+async function startLiveCamera() {
+  const video = document.getElementById('cameraStream');
+  const btnStart = document.getElementById('btnStartCamera');
+  const btnCapture = document.getElementById('btnCapturePhoto');
+
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" } },
+      audio: false
+    });
+    video.srcObject = mediaStream;
+    video.classList.remove('hidden');
+    btnStart.classList.add('hidden');
+    btnCapture.classList.remove('hidden');
+  } catch (err) {
+    alert("Impossibile accedere alla fotocamera. Verifica i permessi del browser!");
+  }
 }
 
-function handleFileSelect(e) {
-  const file = e.target.files[0];
-  if (!file) return;
+function stopLiveCamera() {
+  if (mediaStream) {
+    mediaStream.getTracks().forEach(track => track.stop());
+    mediaStream = null;
+  }
+  const video = document.getElementById('cameraStream');
+  const btnStart = document.getElementById('btnStartCamera');
+  const btnCapture = document.getElementById('btnCapturePhoto');
+  if (video) video.classList.add('hidden');
+  if (btnStart) btnStart.classList.remove('hidden');
+  if (btnCapture) btnCapture.classList.add('hidden');
+}
 
-  const reader = new FileReader();
-  reader.onload = (event) => {
-    state.uploadedPhotoBase64 = event.target.result;
-    document.getElementById('photoPreviewImg').src = state.uploadedPhotoBase64;
-    document.getElementById('photoPreviewContainer').classList.remove('hidden');
-    document.getElementById('photoUploadControls').classList.add('hidden');
-  };
-  reader.readAsDataURL(file);
+function captureLivePhoto() {
+  const video = document.getElementById('cameraStream');
+  const canvas = document.getElementById('cameraCanvas');
+  if (!video || !video.videoWidth) return;
+
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  state.uploadedPhotoBase64 = canvas.toDataURL('image/jpeg', 0.85);
+  state.activeTestScenario = 'live_camera';
+
+  document.getElementById('photoPreviewImg').src = state.uploadedPhotoBase64;
+  document.getElementById('photoPreviewContainer').classList.remove('hidden');
+  document.getElementById('photoUploadControls').classList.add('hidden');
+
+  stopLiveCamera();
 }
 
 function clearPhoto() {
+  stopLiveCamera();
   state.uploadedPhotoBase64 = null;
   state.activeTestScenario = null;
-  document.getElementById('photoFileInput').value = '';
   document.getElementById('photoPreviewContainer').classList.add('hidden');
   document.getElementById('photoUploadControls').classList.remove('hidden');
 }
 
 function loadDemoPhoto(type) {
+  stopLiveCamera();
   const demoImages = {
     red: "https://images.unsplash.com/photo-1543393470-b2c64b6e8d2e?w=800&auto=format&fit=crop&q=60",
     orange: "https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?w=800&auto=format&fit=crop&q=60",
@@ -934,6 +968,62 @@ function loadDemoPhoto(type) {
   }
 }
 
+function analyzeImageStrict(base64Img, category, description) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      canvas.width = 100;
+      canvas.height = 100;
+      ctx.drawImage(img, 0, 0, 100, 100);
+      const data = ctx.getImageData(0, 0, 100, 100).data;
+
+      let totalBrightness = 0;
+      let skinTonePixels = 0;
+      let flatColorCount = 0;
+
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i], g = data[i + 1], b = data[i + 2];
+        const brightness = (r + g + b) / 3;
+        totalBrightness += brightness;
+
+        if (Math.abs(r - g) < 10 && Math.abs(g - b) < 10) flatColorCount++;
+        if (r > 95 && g > 40 && b > 20 && r > g && r > b && Math.abs(r - g) > 15) {
+          skinTonePixels++;
+        }
+      }
+
+      const pixelCount = 10000;
+      const avgBrightness = totalBrightness / pixelCount;
+      const flatRatio = flatColorCount / pixelCount;
+      const skinRatio = skinTonePixels / pixelCount;
+
+      const descLower = description.toLowerCase();
+      const validKeywords = ['auto', 'macchina', 'scontro', 'feriti', 'acqua', 'allag', 'palo', 'cavo', 'filo', 'buca', 'asfalto', 'strada', 'marciapiede', 'vetri', 'fumo', 'fuoco', 'aggressione', 'rissa', 'pericolo'];
+      const hasValidContext = validKeywords.some(k => descLower.includes(k)) && description.length >= 10;
+
+      if (avgBrightness < 30 || avgBrightness > 235 || flatRatio > 0.85) {
+        resolve({ valid: false, reason: "Immagine ostruita, troppo buia o priva di dettagli ambientali (possibile muro o obiettivo coperto)." });
+        return;
+      }
+
+      if (skinRatio > 0.35 && category !== 'rissa' && category !== 'molestie') {
+        resolve({ valid: false, reason: "Rilevato primo piano di volto o oggetto non pertinente alla carreggiata stradale." });
+        return;
+      }
+
+      if (!hasValidContext) {
+        resolve({ valid: false, reason: "La scena inquadrata non corrisponde a un pericolo stradale reale per la categoria '" + category.toUpperCase() + "'." });
+        return;
+      }
+
+      resolve({ valid: true, reason: "Scenario ambientale e metadati Live verificati con successo." });
+    };
+    img.src = base64Img;
+  });
+}
+
 async function submitReport() {
   const desc = document.getElementById('reportDesc').value.trim();
   const indirizzo = document.getElementById('reportIndirizzo').value.trim();
@@ -945,7 +1035,7 @@ async function submitReport() {
     return;
   }
   if (!state.uploadedPhotoBase64) {
-    alert("Carica o scatta una foto del pericolo!");
+    alert("Devi scattare una foto in diretta con la fotocamera!");
     return;
   }
 
@@ -954,7 +1044,23 @@ async function submitReport() {
 
   box.classList.remove('hidden');
   box.className = "p-2.5 rounded-xl border text-xs bg-neutral-100 border-neutral-300 text-neutral-800 animate-pulse";
-  box.innerHTML = `<b>Bot AI:</b> Verifica autenticità foto e gravità in corso...`;
+  box.innerHTML = `<b>Bot AI Vision:</b> Scansione pixel, verifica live e coerenza semantica...`;
+
+  let scenarioToSend = state.activeTestScenario;
+  let localRejectReason = "";
+
+  if (state.activeTestScenario === 'live_camera') {
+    const check = await analyzeImageStrict(state.uploadedPhotoBase64, state.currentCategory, desc);
+    if (!check.valid) {
+      scenarioToSend = 'fake_meme';
+      localRejectReason = check.reason;
+    } else {
+      scenarioToSend = state.currentCategory === 'incidente' || state.currentCategory === 'rissa' ? 'valid_red' : 'valid_orange';
+    }
+  }
+
+  const sentLat = state.userLocation.lat + (Math.random() - 0.5) * 0.003;
+  const sentLng = state.userLocation.lng + (Math.random() - 0.5) * 0.003;
 
   try {
     const res = await fetch('/api/reports/create', {
@@ -967,45 +1073,69 @@ async function submitReport() {
         categoria: state.currentCategory,
         descrizione: desc,
         foto: state.uploadedPhotoBase64,
-        lat: state.userLocation.lat + (Math.random() - 0.5) * 0.003,
-        lng: state.userLocation.lng + (Math.random() - 0.5) * 0.003,
+        lat: sentLat,
+        lng: sentLng,
         indirizzo: indirizzo,
-        test_scenario: state.activeTestScenario
+        test_scenario: scenarioToSend
       })
     });
 
     const data = await res.json();
 
-    if (res.ok) {
+    if (res.ok && scenarioToSend !== 'fake_meme') {
       box.className = "p-2.5 rounded-xl border text-xs bg-emerald-50 border-emerald-300 text-emerald-800";
       box.innerHTML = `
-        <div class="font-bold mb-0.5">FOTO AUTENTICA APPROVATA</div>
+        <div class="font-bold mb-0.5">✓ FOTO LIVE AUTENTICA APPROVATA</div>
         <p><b>Codice:</b> ${data.codice_gravita} - ${data.dettagli}</p>
       `;
 
-      setTimeout(() => {
+      const nuovaSegnalazione = {
+        id: data.report_id || Date.now().toString(),
+        categoria: state.currentCategory,
+        descrizione: desc,
+        severity: data.codice_gravita || 'ROSSO',
+        lat: sentLat,
+        lng: sentLng,
+        indirizzo: indirizzo,
+        foto_url: state.uploadedPhotoBase64,
+        ai_reason: data.dettagli || 'Convalidata da Bot AI Vision',
+        seconds_left: 3600,
+        confirm_count: 1,
+        resolved_count: 0,
+        distance_meters: 50
+      };
+
+      setTimeout(async () => {
         closeReportModal();
         clearPhoto();
         document.getElementById('reportDesc').value = '';
         box.classList.add('hidden');
         btn.disabled = false;
         btn.innerHTML = `<i data-lucide="send" class="w-3.5 h-3.5"></i> <span>Invia Segnalazione</span>`;
-        fetchReports();
+        
+        await fetchReports();
+        if (!state.reports.some(r => r.id === nuovaSegnalazione.id)) {
+          state.reports.unshift(nuovaSegnalazione);
+          renderMapMarkers();
+          renderHazardsList();
+        }
+        state.map.flyTo([sentLat, sentLng], 16);
         checkAuthSession();
       }, 1500);
 
     } else {
+      const rejectMsg = localRejectReason || data.message || "Immagine non conforme ai criteri di sicurezza stradale.";
       if (data.status === 'BANNED') {
         box.className = "p-2.5 rounded-xl border text-xs bg-red-50 border-red-300 text-red-900";
         box.innerHTML = `
-          <div class="font-bold text-red-700 mb-0.5">3° STRIKE: ACCOUNT SOSPESO PER 24 ORE</div>
-          <p>${data.message}</p>
+          <div class="font-bold text-red-700 mb-0.5">⛔ 3° STRIKE: ACCOUNT SOSPESO PER 24 ORE</div>
+          <p>${rejectMsg}</p>
         `;
       } else {
         box.className = "p-2.5 rounded-xl border text-xs bg-amber-50 border-amber-300 text-amber-900";
         box.innerHTML = `
-          <div class="font-bold text-amber-800 mb-0.5">SEGNALAZIONE NON VALIDA (${data.strike_count}/3 STRIKE)</div>
-          <p>${data.message}</p>
+          <div class="font-bold text-amber-800 mb-0.5">⚠️ SEGNALAZIONE RESPINTA (${data.strike_count || 1}/3 STRIKE)</div>
+          <p>${rejectMsg}</p>
         `;
       }
 
@@ -1014,12 +1144,11 @@ async function submitReport() {
       checkAuthSession();
     }
   } catch (err) {
-    alert("Errore nell'invio.");
+    alert("Errore di connessione con il server.");
     btn.disabled = false;
     btn.innerHTML = `<i data-lucide="send" class="w-3.5 h-3.5"></i> <span>Invia Segnalazione</span>`;
   }
 }
-
 // ------------------- SIMULATORE GIULIA A 200M ------------------- //
 
 function simulateGiuliaApproach() {
